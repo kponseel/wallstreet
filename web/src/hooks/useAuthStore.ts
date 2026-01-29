@@ -1,0 +1,162 @@
+import { create } from 'zustand';
+import {
+  User as FirebaseUser,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signInWithPopup,
+  GoogleAuthProvider,
+  signOut as firebaseSignOut,
+  sendEmailVerification,
+  sendPasswordResetEmail,
+  onAuthStateChanged,
+} from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
+import { auth, db } from '@/services/firebase';
+import type { User } from '@/types';
+
+interface AuthState {
+  user: User | null;
+  firebaseUser: FirebaseUser | null;
+  loading: boolean;
+  error: string | null;
+
+  // Actions
+  initialize: () => () => void;
+  signIn: (email: string, password: string) => Promise<void>;
+  signUp: (email: string, password: string, displayName: string) => Promise<void>;
+  signInWithGoogle: () => Promise<void>;
+  signOut: () => Promise<void>;
+  sendVerificationEmail: () => Promise<void>;
+  resetPassword: (email: string) => Promise<void>;
+  clearError: () => void;
+}
+
+export const useAuthStore = create<AuthState>((set, get) => ({
+  user: null,
+  firebaseUser: null,
+  loading: true,
+  error: null,
+
+  initialize: () => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        // Fetch user profile from Firestore
+        try {
+          const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            set({
+              firebaseUser,
+              user: {
+                uid: firebaseUser.uid,
+                email: firebaseUser.email || '',
+                displayName: userData.displayName,
+                photoURL: userData.photoURL,
+                emailVerified: firebaseUser.emailVerified,
+                stats: userData.stats,
+              },
+              loading: false,
+            });
+          } else {
+            // User doc doesn't exist yet (might be creating)
+            set({
+              firebaseUser,
+              user: {
+                uid: firebaseUser.uid,
+                email: firebaseUser.email || '',
+                displayName: firebaseUser.displayName || '',
+                photoURL: firebaseUser.photoURL,
+                emailVerified: firebaseUser.emailVerified,
+                stats: {
+                  matchesPlayed: 0,
+                  matchesWon: 0,
+                  totalReturns: 0,
+                  bestReturn: 0,
+                  averageRank: 0,
+                },
+              },
+              loading: false,
+            });
+          }
+        } catch (error) {
+          console.error('Error fetching user profile:', error);
+          set({ firebaseUser, user: null, loading: false });
+        }
+      } else {
+        set({ firebaseUser: null, user: null, loading: false });
+      }
+    });
+
+    return unsubscribe;
+  },
+
+  signIn: async (email: string, password: string) => {
+    set({ loading: true, error: null });
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Sign in failed';
+      set({ error: message, loading: false });
+      throw error;
+    }
+  },
+
+  signUp: async (email: string, password: string, _displayName: string) => {
+    set({ loading: true, error: null });
+    try {
+      const credential = await createUserWithEmailAndPassword(auth, email, password);
+      // Send verification email
+      await sendEmailVerification(credential.user);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Sign up failed';
+      set({ error: message, loading: false });
+      throw error;
+    }
+  },
+
+  signInWithGoogle: async () => {
+    set({ loading: true, error: null });
+    try {
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Google sign in failed';
+      set({ error: message, loading: false });
+      throw error;
+    }
+  },
+
+  signOut: async () => {
+    set({ loading: true, error: null });
+    try {
+      await firebaseSignOut(auth);
+      set({ user: null, firebaseUser: null, loading: false });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Sign out failed';
+      set({ error: message, loading: false });
+      throw error;
+    }
+  },
+
+  sendVerificationEmail: async () => {
+    const { firebaseUser } = get();
+    if (!firebaseUser) {
+      throw new Error('No user logged in');
+    }
+    await sendEmailVerification(firebaseUser);
+  },
+
+  resetPassword: async (email: string) => {
+    set({ loading: true, error: null });
+    try {
+      await sendPasswordResetEmail(auth, email);
+      set({ loading: false });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Password reset failed';
+      set({ error: message, loading: false });
+      throw error;
+    }
+  },
+
+  clearError: () => set({ error: null }),
+}));
