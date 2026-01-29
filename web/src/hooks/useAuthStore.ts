@@ -40,47 +40,42 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   initialize: () => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        // Fetch user profile from Firestore
+        // Create user object from Firebase Auth data immediately
+        const defaultUser: User = {
+          uid: firebaseUser.uid,
+          email: firebaseUser.email || '',
+          displayName: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User',
+          photoURL: firebaseUser.photoURL,
+          emailVerified: firebaseUser.emailVerified,
+          stats: {
+            matchesPlayed: 0,
+            matchesWon: 0,
+            totalReturns: 0,
+            bestReturn: 0,
+            averageRank: 0,
+          },
+        };
+
+        // Set user immediately to avoid stuck loading state
+        set({ firebaseUser, user: defaultUser, loading: false });
+
+        // Try to fetch additional user data from Firestore (optional enhancement)
         try {
           const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
           if (userDoc.exists()) {
             const userData = userDoc.data();
             set({
-              firebaseUser,
               user: {
-                uid: firebaseUser.uid,
-                email: firebaseUser.email || '',
-                displayName: userData.displayName,
-                photoURL: userData.photoURL,
-                emailVerified: firebaseUser.emailVerified,
-                stats: userData.stats,
+                ...defaultUser,
+                displayName: userData.displayName || defaultUser.displayName,
+                photoURL: userData.photoURL || defaultUser.photoURL,
+                stats: userData.stats || defaultUser.stats,
               },
-              loading: false,
-            });
-          } else {
-            // User doc doesn't exist yet (might be creating)
-            set({
-              firebaseUser,
-              user: {
-                uid: firebaseUser.uid,
-                email: firebaseUser.email || '',
-                displayName: firebaseUser.displayName || '',
-                photoURL: firebaseUser.photoURL,
-                emailVerified: firebaseUser.emailVerified,
-                stats: {
-                  matchesPlayed: 0,
-                  matchesWon: 0,
-                  totalReturns: 0,
-                  bestReturn: 0,
-                  averageRank: 0,
-                },
-              },
-              loading: false,
             });
           }
-        } catch (error) {
-          console.error('Error fetching user profile:', error);
-          set({ firebaseUser, user: null, loading: false });
+        } catch {
+          // Firestore read failed - continue with Firebase Auth data
+          console.warn('Could not fetch user profile from Firestore, using auth data');
         }
       } else {
         set({ firebaseUser: null, user: null, loading: false });
