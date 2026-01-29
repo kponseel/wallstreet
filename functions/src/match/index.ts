@@ -9,7 +9,6 @@ import {
   isValidMatchName,
   getMarketCloseTime,
   createAuditLog,
-  formatDateString,
 } from '../utils/helpers';
 
 const db = admin.firestore();
