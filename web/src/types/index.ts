@@ -28,6 +28,7 @@ export interface Match {
   creatorDisplayName: string;
   type: MatchType;
   matchCode: string | null;
+  inviteCode?: string | null;
   status: MatchStatus;
   durationDays: number;
   startDate: Date;
@@ -53,6 +54,7 @@ export interface Portfolio {
   positions: Position[];
   isLocked: boolean;
   submittedAt: Date;
+  currentReturnPercent?: number;
 }
 
 // Result types
@@ -67,9 +69,9 @@ export interface Result {
   resultId: string;
   matchId: string;
   userId: string;
-  userDisplayName: string;
+  displayName: string;
   positionResults: PositionResult[];
-  portfolioReturnPercent: number;
+  returnPercent: number;
   startValueCents: number;
   endValueCents: number;
   rank: number;

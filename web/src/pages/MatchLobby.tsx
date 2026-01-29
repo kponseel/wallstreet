@@ -1,12 +1,18 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
-import { db } from '@/services/firebase';
+import { httpsCallable } from 'firebase/functions';
+import { db, functions } from '@/services/firebase';
 import type { Match } from '@/types';
 
 export function MatchLobbyPage() {
+  const navigate = useNavigate();
   const [matches, setMatches] = useState<Match[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showJoinModal, setShowJoinModal] = useState(false);
+  const [inviteCode, setInviteCode] = useState('');
+  const [joining, setJoining] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchMatches() {
@@ -38,6 +44,29 @@ export function MatchLobbyPage() {
     fetchMatches();
   }, []);
 
+  const handleJoinPrivate = async () => {
+    if (!inviteCode.trim()) return;
+    setJoining(true);
+    setJoinError(null);
+
+    try {
+      const getMatchByCode = httpsCallable(functions, 'getMatchByCode');
+      const result = await getMatchByCode({ code: inviteCode.toUpperCase() });
+      const data = result.data as { success: boolean; data?: { matchId: string } };
+
+      if (data.success && data.data?.matchId) {
+        setShowJoinModal(false);
+        navigate(`/matches/${data.data.matchId}`);
+      } else {
+        setJoinError('Match not found');
+      }
+    } catch (err: unknown) {
+      setJoinError(err instanceof Error ? err.message : 'Failed to find match');
+    } finally {
+      setJoining(false);
+    }
+  };
+
   const formatDate = (date: Date) => {
     return date.toLocaleDateString('en-US', {
       month: 'short',
@@ -57,9 +86,47 @@ export function MatchLobbyPage() {
 
   return (
     <div className="space-y-6">
+      {/* Join Private Modal */}
+      {showJoinModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-sm">
+            <h3 className="text-lg font-semibold mb-4">Join Private Match</h3>
+            <input
+              type="text"
+              value={inviteCode}
+              onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+              placeholder="Enter invite code"
+              className="input mb-4"
+              maxLength={8}
+            />
+            {joinError && (
+              <p className="text-danger-600 text-sm mb-4">{joinError}</p>
+            )}
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowJoinModal(false)}
+                className="btn-secondary flex-1"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleJoinPrivate}
+                disabled={joining || !inviteCode.trim()}
+                className="btn-primary flex-1"
+              >
+                {joining ? 'Joining...' : 'Join'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-semibold">Match Lobby</h2>
-        <button className="btn-secondary text-sm">
+        <button
+          onClick={() => setShowJoinModal(true)}
+          className="btn-secondary text-sm"
+        >
           Join Private
         </button>
       </div>
