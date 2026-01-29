@@ -1,0 +1,561 @@
+================================================================================
+BATCH 5 — FRONTEND UX & SCREEN FLOW
+Wall Street Fantasy League MVP — Component Inventory
+================================================================================
+
+1. COMPONENT ORGANIZATION
+-------------------------
+
+/components
+  /common          # Shared UI primitives
+  /auth            # Authentication-related
+  /match           # Match display and management
+  /portfolio       # Portfolio building
+  /leaderboard     # Rankings and results
+  /profile         # User profile
+  /layout          # Navigation and structure
+
+2. COMMON COMPONENTS
+--------------------
+
+COMPONENT: Button
+-----------------
+Purpose: Primary action button
+Props:
+  - label: string (required)
+  - variant: "primary" | "secondary" | "danger" | "ghost"
+  - size: "small" | "medium" | "large"
+  - disabled: boolean
+  - loading: boolean
+  - onPress: function
+  - fullWidth: boolean
+  - icon: ReactNode (optional, left side)
+Data Contract: None (pure UI)
+
+COMPONENT: Input
+----------------
+Purpose: Text input field
+Props:
+  - label: string
+  - value: string
+  - onChange: function(value: string)
+  - placeholder: string
+  - type: "text" | "email" | "password" | "number"
+  - error: string (validation error message)
+  - disabled: boolean
+  - maxLength: number
+  - autoCapitalize: "none" | "words" | "sentences"
+Data Contract: None (pure UI)
+
+COMPONENT: Card
+---------------
+Purpose: Container with elevation
+Props:
+  - children: ReactNode
+  - onPress: function (optional, makes tappable)
+  - variant: "elevated" | "outlined" | "filled"
+  - padding: "none" | "small" | "medium" | "large"
+Data Contract: None (pure UI)
+
+COMPONENT: Avatar
+-----------------
+Purpose: User profile image
+Props:
+  - imageUrl: string (optional)
+  - name: string (for fallback initials)
+  - size: "small" (24) | "medium" (40) | "large" (64)
+  - badge: ReactNode (optional overlay)
+Data Contract: None (pure UI)
+
+COMPONENT: Badge
+----------------
+Purpose: Status indicator
+Props:
+  - label: string
+  - variant: "success" | "warning" | "error" | "info" | "neutral"
+  - size: "small" | "medium"
+Data Contract: None (pure UI)
+
+COMPONENT: Countdown
+--------------------
+Purpose: Time remaining display
+Props:
+  - targetTime: Date | Timestamp
+  - format: "full" | "compact" | "relative"
+  - onExpire: function (optional callback)
+  - showSeconds: boolean
+Data Contract:
+  - Updates every second when < 1 hour remaining
+  - Updates every minute otherwise
+
+COMPONENT: LoadingSpinner
+-------------------------
+Purpose: Loading state indicator
+Props:
+  - size: "small" | "medium" | "large"
+  - color: string (optional, defaults to primary)
+Data Contract: None (pure UI)
+
+COMPONENT: EmptyState
+---------------------
+Purpose: No data placeholder
+Props:
+  - icon: ReactNode
+  - title: string
+  - description: string
+  - action: { label: string, onPress: function } (optional)
+Data Contract: None (pure UI)
+
+COMPONENT: ErrorState
+---------------------
+Purpose: Error display with retry
+Props:
+  - title: string
+  - message: string
+  - onRetry: function (optional)
+Data Contract: None (pure UI)
+
+COMPONENT: Modal
+----------------
+Purpose: Modal dialog container
+Props:
+  - visible: boolean
+  - onClose: function
+  - title: string
+  - children: ReactNode
+  - closeOnBackdrop: boolean
+Data Contract: None (pure UI)
+
+COMPONENT: Toast
+----------------
+Purpose: Transient notification
+Props:
+  - message: string
+  - type: "success" | "error" | "info" | "warning"
+  - duration: number (ms)
+  - action: { label: string, onPress: function } (optional)
+Data Contract: None (pure UI)
+
+3. AUTH COMPONENTS
+------------------
+
+COMPONENT: AuthForm
+-------------------
+Purpose: Wrapper for auth forms with common styling
+Props:
+  - title: string
+  - subtitle: string
+  - children: ReactNode (form fields)
+  - footer: ReactNode (links)
+Data Contract: None (layout only)
+
+COMPONENT: SocialLoginButton
+----------------------------
+Purpose: OAuth provider button
+Props:
+  - provider: "google" | "apple"
+  - onPress: function
+  - loading: boolean
+  - disabled: boolean
+Data Contract: None (triggers OAuth flow)
+
+COMPONENT: PasswordInput
+------------------------
+Purpose: Password field with visibility toggle
+Props:
+  - value: string
+  - onChange: function(value: string)
+  - label: string
+  - error: string
+  - showStrength: boolean (password strength indicator)
+Data Contract: None (pure UI)
+
+COMPONENT: PasswordStrength
+---------------------------
+Purpose: Password strength indicator
+Props:
+  - password: string
+Data Contract:
+  - Calculates strength locally
+  - Displays: weak/fair/good/strong
+
+4. MATCH COMPONENTS
+-------------------
+
+COMPONENT: MatchCard
+--------------------
+Purpose: Match summary in list view
+Props:
+  - match: Match
+  - onPress: function
+  - showParticipants: boolean
+Data Contract:
+  Match: {
+    matchId: string
+    name: string
+    type: "PUBLIC" | "PRIVATE"
+    status: MatchStatus
+    durationDays: number
+    startDate: Timestamp
+    endDate: Timestamp
+    playerCount: number
+    maxPlayers: number
+    creatorDisplayName: string
+  }
+
+COMPONENT: MatchHeader
+----------------------
+Purpose: Match detail header with status
+Props:
+  - match: Match
+  - userPortfolio: Portfolio | null
+  - onAction: function (join/edit/leave)
+Data Contract:
+  Match: (same as MatchCard)
+  Portfolio: {
+    portfolioId: string
+    isLocked: boolean
+    submittedAt: Timestamp
+  }
+
+COMPONENT: MatchStatusBadge
+---------------------------
+Purpose: Match status indicator
+Props:
+  - status: MatchStatus
+  - startDate: Timestamp (for OPEN countdown)
+  - endDate: Timestamp (for LIVE countdown)
+Data Contract:
+  MatchStatus: "DRAFT" | "OPEN" | "LIVE" | "SETTLING" | "FINISHED" | "CANCELLED"
+
+COMPONENT: MatchTimer
+---------------------
+Purpose: Countdown to match start/end
+Props:
+  - match: Match
+Data Contract:
+  - If OPEN: shows time until start
+  - If LIVE: shows time until end
+  - If other: shows relevant timestamp
+
+COMPONENT: MatchTypeIndicator
+-----------------------------
+Purpose: Public/Private indicator
+Props:
+  - type: "PUBLIC" | "PRIVATE"
+  - matchCode: string (for private, to copy)
+Data Contract: None
+
+COMPONENT: ParticipantList
+--------------------------
+Purpose: List of match participants
+Props:
+  - participants: Array<Participant>
+  - maxDisplay: number
+  - onViewAll: function
+Data Contract:
+  Participant: {
+    userId: string
+    userDisplayName: string
+    hasSubmittedPortfolio: boolean
+    joinedAt: Timestamp
+  }
+
+COMPONENT: MatchFilters
+-----------------------
+Purpose: Filter controls for match lobby
+Props:
+  - filters: FilterState
+  - onChange: function(filters: FilterState)
+Data Contract:
+  FilterState: {
+    duration: number | null
+    startingSoon: boolean
+  }
+
+5. PORTFOLIO COMPONENTS
+-----------------------
+
+COMPONENT: PortfolioSummary
+---------------------------
+Purpose: Portfolio overview card
+Props:
+  - portfolio: Portfolio
+  - showPositions: boolean
+  - result: Result | null (for returns display)
+Data Contract:
+  Portfolio: {
+    portfolioId: string
+    positions: Array<Position>
+    totalAllocationCents: number
+    isLocked: boolean
+    submittedAt: Timestamp
+  }
+  Position: {
+    symbol: string
+    exchange: string
+    companyName: string
+    allocationCents: number
+    allocationPercent: number
+  }
+
+COMPONENT: PositionRow
+----------------------
+Purpose: Single position in portfolio
+Props:
+  - position: Position
+  - result: PositionResult | null
+  - onEdit: function | null (if editable)
+  - onRemove: function | null (if editable)
+Data Contract:
+  Position: (same as above)
+  PositionResult: {
+    startPriceCents: number
+    endPriceCents: number
+    returnPercent: number
+  }
+
+COMPONENT: PositionEditor
+-------------------------
+Purpose: Edit single position
+Props:
+  - position: Position | null (null for new)
+  - onSave: function(position: Position)
+  - onCancel: function
+  - allocatedPercent: number (already allocated to other positions)
+Data Contract: (same Position type)
+
+COMPONENT: AllocationSlider
+---------------------------
+Purpose: Allocation percentage selector
+Props:
+  - value: number (5-50)
+  - onChange: function(value: number)
+  - min: number (5)
+  - max: number (50)
+  - step: number (1)
+  - remainingBudget: number
+Data Contract: None
+
+COMPONENT: PortfolioValidation
+------------------------------
+Purpose: Validation status display
+Props:
+  - positions: Array<Position>
+  - totalAllocation: number
+Data Contract:
+  - Shows check/error for each rule:
+    - Exactly 5 positions
+    - Each 5-50%
+    - Total = 100%
+
+COMPONENT: SymbolSearchInput
+----------------------------
+Purpose: Stock symbol search with autocomplete
+Props:
+  - value: string
+  - onChange: function(symbol: Symbol | null)
+  - excludeSymbols: Array<string> (already in portfolio)
+Data Contract:
+  Symbol: {
+    symbol: string
+    exchange: string
+    companyName: string
+    isEligible: boolean
+  }
+
+COMPONENT: SymbolResult
+-----------------------
+Purpose: Symbol search result row
+Props:
+  - symbol: Symbol
+  - onSelect: function
+Data Contract: (same Symbol type)
+
+COMPONENT: SubmitPortfolioButton
+--------------------------------
+Purpose: Submit button with validation
+Props:
+  - isValid: boolean
+  - isLoading: boolean
+  - onSubmit: function
+  - deadline: Timestamp
+Data Contract: None
+
+6. LEADERBOARD COMPONENTS
+-------------------------
+
+COMPONENT: LeaderboardTable
+---------------------------
+Purpose: Ranked list of players
+Props:
+  - entries: Array<LeaderboardEntry>
+  - currentUserId: string
+  - onEntryPress: function(entry)
+  - loading: boolean
+  - onLoadMore: function
+Data Contract:
+  LeaderboardEntry: {
+    rank: number
+    userId: string
+    userDisplayName: string
+    userPhotoURL: string | null
+    portfolioReturnPercent: number
+    endValueCents: number
+    topHolding: string
+    topHoldingReturn: number
+  }
+
+COMPONENT: LeaderboardRow
+-------------------------
+Purpose: Single leaderboard entry
+Props:
+  - entry: LeaderboardEntry
+  - isCurrentUser: boolean
+  - onPress: function
+Data Contract: (same LeaderboardEntry)
+
+COMPONENT: RankBadge
+--------------------
+Purpose: Rank position display
+Props:
+  - rank: number
+Data Contract:
+  - 1st: Gold styling
+  - 2nd: Silver styling
+  - 3rd: Bronze styling
+  - Others: neutral
+
+COMPONENT: ReturnDisplay
+------------------------
+Purpose: Formatted return percentage
+Props:
+  - returnPercent: number
+  - size: "small" | "medium" | "large"
+  - showSign: boolean
+Data Contract:
+  - Positive: green, + prefix
+  - Negative: red, - prefix
+  - Zero: gray
+
+COMPONENT: UserRankCard
+-----------------------
+Purpose: Current user's rank highlight
+Props:
+  - entry: LeaderboardEntry
+  - totalParticipants: number
+Data Contract: (same LeaderboardEntry)
+
+7. PROFILE COMPONENTS
+---------------------
+
+COMPONENT: ProfileHeader
+------------------------
+Purpose: User profile header
+Props:
+  - user: User
+  - onEditPress: function
+Data Contract:
+  User: {
+    uid: string
+    displayName: string
+    photoURL: string | null
+    email: string
+    emailVerified: boolean
+    stats: UserStats
+  }
+
+COMPONENT: StatsCard
+--------------------
+Purpose: User statistics display
+Props:
+  - stats: UserStats
+Data Contract:
+  UserStats: {
+    matchesPlayed: number
+    matchesWon: number
+    totalReturns: number
+    bestReturn: number
+    averageRank: number
+  }
+
+COMPONENT: StatItem
+-------------------
+Purpose: Single stat display
+Props:
+  - label: string
+  - value: string | number
+  - icon: ReactNode
+Data Contract: None
+
+COMPONENT: SettingsRow
+----------------------
+Purpose: Single settings item
+Props:
+  - label: string
+  - value: ReactNode (toggle, text, etc.)
+  - onPress: function (optional)
+  - icon: ReactNode
+Data Contract: None
+
+8. LAYOUT COMPONENTS
+--------------------
+
+COMPONENT: TabBar
+-----------------
+Purpose: Bottom navigation
+Props:
+  - activeTab: string
+  - onTabPress: function(tab: string)
+Data Contract: None
+
+COMPONENT: Header
+-----------------
+Purpose: Screen header
+Props:
+  - title: string
+  - showBack: boolean
+  - onBack: function
+  - rightAction: ReactNode (optional)
+Data Contract: None
+
+COMPONENT: SafeAreaWrapper
+--------------------------
+Purpose: Safe area handling
+Props:
+  - children: ReactNode
+  - edges: Array<"top" | "bottom" | "left" | "right">
+Data Contract: None
+
+COMPONENT: ScrollContainer
+--------------------------
+Purpose: Scrollable content with pull-to-refresh
+Props:
+  - children: ReactNode
+  - onRefresh: function
+  - refreshing: boolean
+Data Contract: None
+
+COMPONENT: KeyboardAwareView
+----------------------------
+Purpose: Keyboard-aware scrolling
+Props:
+  - children: ReactNode
+Data Contract: None
+
+9. COMPONENT DATA FLOW
+----------------------
+
+Data Source         | Components Using It
+--------------------|-----------------------------------------
+Firebase Auth       | AuthForm, ProfileHeader, all gated screens
+Firestore /users    | ProfileHeader, StatsCard, Avatar
+Firestore /matches  | MatchCard, MatchHeader, MatchTimer
+Firestore /portfolios| PortfolioSummary, PositionRow
+Firestore /results  | LeaderboardRow, ReturnDisplay
+Firestore /leaderboard| LeaderboardTable, RankBadge
+Firestore /symbolCache| SymbolSearchInput, SymbolResult
+
+================================================================================
+END OF COMPONENT INVENTORY
+================================================================================

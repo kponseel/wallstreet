@@ -1,0 +1,377 @@
+================================================================================
+BATCH 6 — MARKET DATA INTEGRATION
+Wall Street Fantasy League MVP — Market Data Integration Specification
+================================================================================
+
+1. DATA REQUIREMENTS SUMMARY
+----------------------------
+
+Required Data Types:
+  1. End-of-Day (EOD) stock prices (primary requirement)
+  2. Symbol reference data (company names, exchanges)
+  3. Trading calendar (market holidays)
+
+Not Required for MVP:
+  - Real-time/streaming prices
+  - Intraday data
+  - Historical candlestick/OHLCV
+  - Options/derivatives data
+  - Fundamental data (earnings, financials)
+  - News/sentiment data
+
+2. CANDIDATE DATA PROVIDERS
+---------------------------
+
+2.1 Polygon.io
+--------------
+Website: https://polygon.io
+Tier: Recommended for MVP
+
+Pros:
+  + Comprehensive US stock coverage
+  + Reliable EOD data
+  + Good documentation
+  + Reasonable pricing for startups
+  + Split-adjusted prices included
+  + WebSocket available (future use)
+  + Rate limits suitable for our scale
+
+Cons:
+  - Requires paid plan for EOD (Starter $29/mo)
+  - Free tier is delayed data only
+
+Relevant Endpoints:
+  - GET /v2/aggs/ticker/{ticker}/prev - Previous day close
+  - GET /v2/aggs/ticker/{ticker}/range/1/day/{from}/{to} - Date range
+  - GET /v3/reference/tickers - Symbol search
+  - GET /v1/marketstatus/now - Market status
+
+Pricing (as of 2024):
+  - Starter: $29/month - 5 calls/minute, EOD data
+  - Developer: $79/month - Unlimited EOD, 100/min
+  - Recommended: Starter for MVP, upgrade as needed
+
+2.2 Alpha Vantage
+-----------------
+Website: https://www.alphavantage.co
+Tier: Budget Alternative
+
+Pros:
+  + Free tier available (25 requests/day)
+  + Simple API
+  + Good for prototyping
+
+Cons:
+  - Very limited free tier
+  - Rate limits restrictive (5/min on free)
+  - Less reliable for production
+  - Data quality varies
+
+Relevant Endpoints:
+  - TIME_SERIES_DAILY - Daily prices
+  - SYMBOL_SEARCH - Symbol lookup
+  - GLOBAL_QUOTE - Current/latest price
+
+Pricing:
+  - Free: 25 requests/day
+  - Premium: Starts at $49.99/month
+
+2.3 Twelve Data
+---------------
+Website: https://twelvedata.com
+Tier: Alternative Option
+
+Pros:
+  + Generous free tier (800/day)
+  + Global market coverage
+  + Real-time available
+
+Cons:
+  - Less US-focused documentation
+  - Community smaller than Polygon
+
+Relevant Endpoints:
+  - /time_series - Historical prices
+  - /eod - End of day prices
+  - /symbol_search - Symbol lookup
+
+Pricing:
+  - Free: 800 calls/day
+  - Basic: $29/month - 5000/day
+
+2.4 Yahoo Finance (via yfinance/scrapers)
+-----------------------------------------
+Tier: Not Recommended for Production
+
+Pros:
+  + Free
+  + Comprehensive data
+
+Cons:
+  - No official API (scraping required)
+  - Terms of service issues
+  - Unreliable for production
+  - Rate limiting unpredictable
+
+Note: Use only for development/testing, not production
+
+2.5 IEX Cloud
+-------------
+Website: https://iexcloud.io
+Tier: Premium Option
+
+Pros:
+  + High quality data
+  + Good documentation
+  + Reliable infrastructure
+
+Cons:
+  - More expensive
+  - Credit-based pricing complex
+  - May be overkill for MVP
+
+Pricing:
+  - Free: 50,000 core messages/month
+  - Launch: $9/month for basic needs
+
+3. RECOMMENDED ARCHITECTURE
+---------------------------
+
+Primary Provider: Polygon.io (Starter plan)
+Backup Provider: Alpha Vantage (free tier for fallback)
+
+Data Flow:
+  1. Symbol cache populated from Polygon reference data (daily)
+  2. EOD prices fetched from Polygon at settlement
+  3. If Polygon fails, fallback to Alpha Vantage
+  4. Prices stored in Firestore priceSnapshots
+
+4. API USAGE ESTIMATES
+----------------------
+
+Daily Usage (Typical):
+  - Symbol cache refresh: ~100 calls (once daily)
+  - Match starts: ~50 calls per match (avg 10 symbols × 5 matches)
+  - Match settlements: ~50 calls per match
+  - Symbol searches: ~500 calls (user searches)
+
+Peak Day Estimate:
+  - 100 + 250 + 250 + 500 = 1,100 calls
+
+Monthly Estimate:
+  - ~33,000 calls/month
+
+Within Polygon Starter limits (5/min = 7,200/day max)
+
+5. REQUIRED API ENDPOINTS
+-------------------------
+
+5.1 EOD Price Fetch
+-------------------
+Purpose: Get closing price for settlement
+Frequency: At match start and end
+Data Needed:
+  - Close price
+  - Date
+  - Adjusted for splits
+
+Polygon Endpoint:
+  GET /v2/aggs/ticker/{stocksTicker}/prev
+
+  Response Fields Used:
+    - results[0].c (close price)
+    - results[0].t (timestamp)
+    - adjusted: true (parameter)
+
+Example Request:
+  GET https://api.polygon.io/v2/aggs/ticker/AAPL/prev?adjusted=true&apiKey=XXX
+
+Example Response:
+  {
+    "ticker": "AAPL",
+    "results": [{
+      "c": 185.92,
+      "h": 186.74,
+      "l": 185.19,
+      "o": 186.73,
+      "t": 1718920800000,
+      "v": 45678900
+    }],
+    "status": "OK"
+  }
+
+5.2 Historical EOD Fetch
+------------------------
+Purpose: Get price for specific past date
+Frequency: Settlement retries, data backfill
+Data Needed:
+  - Close price for specific date
+
+Polygon Endpoint:
+  GET /v2/aggs/ticker/{stocksTicker}/range/1/day/{from}/{to}
+
+Example Request:
+  GET https://api.polygon.io/v2/aggs/ticker/AAPL/range/1/day/2024-06-17/2024-06-17?adjusted=true&apiKey=XXX
+
+5.3 Symbol Search
+-----------------
+Purpose: Autocomplete in portfolio builder
+Frequency: User-triggered (rate limited)
+Data Needed:
+  - Symbol
+  - Company name
+  - Exchange
+  - Market cap (for eligibility)
+
+Polygon Endpoint:
+  GET /v3/reference/tickers?search={query}&active=true&market=stocks
+
+Example Request:
+  GET https://api.polygon.io/v3/reference/tickers?search=APPL&active=true&market=stocks&limit=10&apiKey=XXX
+
+Example Response:
+  {
+    "results": [
+      {
+        "ticker": "AAPL",
+        "name": "Apple Inc.",
+        "market": "stocks",
+        "locale": "us",
+        "primary_exchange": "XNAS",
+        "type": "CS",
+        "active": true,
+        "currency_name": "usd"
+      }
+    ],
+    "status": "OK"
+  }
+
+5.4 Symbol Details
+------------------
+Purpose: Get full symbol information
+Frequency: On portfolio submission validation
+
+Polygon Endpoint:
+  GET /v3/reference/tickers/{ticker}
+
+5.5 Market Status
+-----------------
+Purpose: Check if market is open
+Frequency: Before triggering settlement
+
+Polygon Endpoint:
+  GET /v1/marketstatus/now
+
+Example Response:
+  {
+    "market": "closed",
+    "serverTime": "2024-06-20T20:15:00-04:00",
+    "exchanges": {
+      "nasdaq": "closed",
+      "nyse": "closed"
+    }
+  }
+
+6. DATA TRANSFORMATION
+----------------------
+
+6.1 Price Response → PriceSnapshot
+----------------------------------
+Input (Polygon):
+  {
+    "ticker": "AAPL",
+    "results": [{
+      "c": 185.92,
+      "t": 1718920800000
+    }]
+  }
+
+Output (Firestore):
+  {
+    "snapshotId": "2024-06-17_AAPL_NASDAQ",
+    "symbol": "AAPL",
+    "exchange": "NASDAQ",
+    "date": "2024-06-17",
+    "closePrice": 18592,
+    "closePriceFloat": 185.92,
+    "currency": "USD",
+    "adjustedForSplits": true,
+    "source": "polygon",
+    "fetchedAt": Timestamp,
+    "dataQuality": "LIVE"
+  }
+
+Transformation Steps:
+  1. Extract close price from results[0].c
+  2. Convert to cents: price * 100
+  3. Parse timestamp to date string
+  4. Map exchange code (XNAS → NASDAQ)
+  5. Generate snapshotId
+
+6.2 Symbol Response → SymbolCache
+---------------------------------
+Input (Polygon):
+  {
+    "ticker": "AAPL",
+    "name": "Apple Inc.",
+    "primary_exchange": "XNAS",
+    "type": "CS",
+    "market_cap": 2800000000000
+  }
+
+Output (Firestore):
+  {
+    "cacheId": "AAPL_NASDAQ",
+    "symbol": "AAPL",
+    "exchange": "NASDAQ",
+    "companyName": "Apple Inc.",
+    "marketCap": "LARGE",
+    "isEligible": true,
+    "ineligibilityReason": null
+  }
+
+Transformation Steps:
+  1. Map exchange code (XNAS → NASDAQ, XNYS → NYSE)
+  2. Classify market cap (>$10B = LARGE, >$2B = MID, else SMALL)
+  3. Check eligibility:
+     - type must be "CS" (common stock)
+     - market must be "stocks"
+     - exchange must be US
+     - active must be true
+
+7. EXCHANGE CODE MAPPING
+------------------------
+
+Polygon Code | Display Name | Notes
+-------------|--------------|------------------
+XNAS         | NASDAQ       | Primary tech exchange
+XNYS         | NYSE         | New York Stock Exchange
+XASE         | AMEX         | American Stock Exchange
+ARCX         | NYSE ARCA    | Map to NYSE for simplicity
+BATS         | CBOE         | Map to primary listing
+
+8. ERROR HANDLING
+-----------------
+
+8.1 API Error Responses
+-----------------------
+Error Code | Meaning          | Action
+-----------|------------------|------------------------
+401        | Auth failed      | Check API key, alert
+403        | Rate limited     | Exponential backoff
+404        | Symbol not found | Mark as ineligible
+429        | Too many requests| Backoff, queue remaining
+500+       | Server error     | Retry with backoff
+
+8.2 Data Quality Flags
+----------------------
+Flag         | Meaning                      | Set When
+-------------|------------------------------|-------------------------
+LIVE         | Fresh data from API          | Normal fetch success
+DELAYED      | Data is 15+ min old          | Delayed data source
+STALE        | Data is 24+ hours old        | Using cached data
+ESTIMATED    | Price interpolated/fallback  | Primary source failed
+
+================================================================================
+END OF MARKET DATA INTEGRATION SPECIFICATION
+================================================================================

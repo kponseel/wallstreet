@@ -1,0 +1,27 @@
+{
+  "name": "wallstreet-fantasy-league",
+  "version": "1.0.0",
+  "description": "Wall Street Fantasy League - Stock picking competition game",
+  "private": true,
+  "scripts": {
+    "build": "npm run build:functions && npm run build:web",
+    "build:functions": "cd functions && npm run build",
+    "build:web": "cd web && npm run build",
+    "dev": "cd web && npm run dev",
+    "deploy": "firebase deploy",
+    "deploy:functions": "firebase deploy --only functions",
+    "deploy:hosting": "firebase deploy --only hosting",
+    "deploy:rules": "firebase deploy --only firestore:rules,firestore:indexes",
+    "emulators": "firebase emulators:start",
+    "emulators:dev": "firebase emulators:start --import=./emulator-data --export-on-exit",
+    "test": "npm run test:functions && npm run test:web",
+    "test:functions": "cd functions && npm test",
+    "test:web": "cd web && npm test"
+  },
+  "keywords": ["firebase", "stock", "fantasy", "game"],
+  "author": "",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": "18"
+  }
+}

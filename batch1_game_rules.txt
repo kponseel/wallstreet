@@ -1,0 +1,125 @@
+================================================================================
+BATCH 1 — PRODUCT & GAME LOGIC
+Wall Street Fantasy League MVP — Game Rules Specification
+================================================================================
+
+1. CORE CONCEPT
+---------------
+Wall Street Fantasy League (WSFL) is a stock-picking competition where players
+build virtual portfolios and compete based on percentage returns over a fixed
+time period. No real money is traded. Players use virtual currency only.
+
+2. MATCH STRUCTURE
+------------------
+2.1 Match Definition
+    - A match is a time-bounded competition between 2+ players
+    - Each match has: start date, end date, entry deadline, and creator
+    - Match durations: 1 day, 3 days, 5 days, 7 days, 14 days, 30 days
+    - Matches start and end at market close (4:00 PM ET / 16:00 ET)
+
+2.2 Match Types (MVP)
+    - PUBLIC: Any authenticated user can join
+    - PRIVATE: Invite-only via match code (6-character alphanumeric)
+
+2.3 Player Limits
+    - Minimum players per match: 2
+    - Maximum players per match: 100 (MVP limit)
+    - One portfolio per user per match (strictly enforced)
+
+3. PORTFOLIO RULES
+------------------
+3.1 Virtual Capital
+    - Each player receives exactly $10,000 virtual dollars per match
+    - No leverage, margin, or borrowing permitted
+    - No short selling permitted
+
+3.2 Portfolio Composition
+    - Exactly 5 stock positions required (no more, no less)
+    - Minimum allocation per position: $500 (5% of capital)
+    - Maximum allocation per position: $5,000 (50% of capital)
+    - Total allocation must equal exactly $10,000
+    - Fractional shares are permitted for calculation purposes
+
+3.3 Eligible Securities
+    - US-listed common stocks only (NYSE, NASDAQ, AMEX)
+    - Must have traded on both match start and end dates
+    - Excluded: ETFs, mutual funds, ADRs, preferred shares, warrants, OTC stocks
+    - Excluded: Stocks with average daily volume < 100,000 shares (30-day avg)
+
+3.4 Position Locking
+    - Portfolios must be submitted before the entry deadline
+    - Entry deadline = match start time (market close on start date)
+    - Once locked, positions cannot be modified for the match duration
+    - No trading, rebalancing, or position changes during the match
+
+4. SCORING SYSTEM
+-----------------
+4.1 Return Calculation
+    - Individual position return = (End Price - Start Price) / Start Price × 100
+    - Portfolio return = weighted average of position returns
+    - Weight = position allocation / total portfolio value ($10,000)
+
+4.2 Price Basis
+    - Start price = official closing price on match start date
+    - End price = official closing price on match end date
+    - All prices sourced from designated EOD data provider
+    - Prices are adjusted for splits but NOT for dividends
+
+4.3 Ranking
+    - Players ranked by portfolio percentage return (highest to lowest)
+    - Ties broken by: (1) earliest portfolio submission time, (2) alphabetical username
+
+5. MATCH CREATION RULES
+-----------------------
+5.1 Who Can Create
+    - Any authenticated user with verified email
+    - Maximum 5 active matches created per user at any time
+
+5.2 Required Fields
+    - Match name (3-50 characters, alphanumeric + spaces)
+    - Match type (PUBLIC or PRIVATE)
+    - Duration (selected from preset options)
+    - Start date (must be a future trading day, at least 24 hours ahead)
+
+5.3 Restrictions
+    - Cannot create match starting on weekends or US market holidays
+    - Cannot create match ending on weekends or US market holidays
+    - Start date must be within 30 days of creation
+
+6. MATCH JOINING RULES
+----------------------
+6.1 Eligibility
+    - Must be authenticated with verified email
+    - Cannot already be in the match
+    - Match must be in OPEN state
+    - Current time must be before entry deadline
+
+6.2 Join Process
+    - Select match from lobby (public) or enter match code (private)
+    - Build portfolio meeting all composition rules
+    - Submit portfolio before deadline
+    - Receive confirmation of locked position
+
+7. PROHIBITED ACTIONS
+---------------------
+- Creating multiple accounts
+- Joining same match with multiple accounts
+- Automated/bot portfolio submissions
+- Exploiting price data delays or errors
+- Colluding with other players
+- Manipulating match outcomes
+
+8. MVP LIMITATIONS (Explicit Non-Features)
+------------------------------------------
+- No real money wagering or prizes
+- No trading during match (buy-and-hold only)
+- No derivatives, options, or futures
+- No international markets
+- No cryptocurrency
+- No social features beyond basic leaderboard
+- No historical performance tracking across matches (future feature)
+- No team/group competitions (future feature)
+
+================================================================================
+END OF GAME RULES SPECIFICATION
+================================================================================

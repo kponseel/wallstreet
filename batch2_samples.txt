@@ -1,0 +1,346 @@
+================================================================================
+BATCH 2 — DATA MODEL & FIREBASE SCHEMA
+Wall Street Fantasy League MVP — Sample Documents
+================================================================================
+
+1. USER DOCUMENT
+----------------
+Collection: users
+Document ID: abc123DEF456
+
+{
+  "uid": "abc123DEF456",
+  "email": "jane.trader@example.com",
+  "displayName": "JaneTrader",
+  "photoURL": "https://storage.googleapis.com/wsfl-avatars/abc123DEF456.jpg",
+  "emailVerified": true,
+  "createdAt": Timestamp(2024-01-15T09:30:00Z),
+  "lastLoginAt": Timestamp(2024-06-20T14:22:15Z),
+  "status": "ACTIVE",
+  "stats": {
+    "matchesPlayed": 12,
+    "matchesWon": 3,
+    "totalReturns": 42.56,
+    "bestReturn": 15.23,
+    "averageRank": 4.2
+  },
+  "preferences": {
+    "timezone": "America/New_York",
+    "notifications": true
+  }
+}
+
+2. MATCH DOCUMENT
+-----------------
+Collection: matches
+Document ID: match_XyZ789AbC
+
+{
+  "matchId": "match_XyZ789AbC",
+  "name": "Tech Titans Weekly",
+  "description": "Weekly competition for tech stock enthusiasts",
+  "creatorId": "abc123DEF456",
+  "creatorDisplayName": "JaneTrader",
+  "type": "PUBLIC",
+  "matchCode": null,
+  "status": "LIVE",
+  "durationDays": 7,
+  "startDate": Timestamp(2024-06-17T20:00:00Z),
+  "endDate": Timestamp(2024-06-24T20:00:00Z),
+  "entryDeadline": Timestamp(2024-06-17T20:00:00Z),
+  "playerCount": 15,
+  "maxPlayers": 100,
+  "minPlayers": 2,
+  "createdAt": Timestamp(2024-06-10T11:45:30Z),
+  "publishedAt": Timestamp(2024-06-10T11:50:00Z),
+  "liveAt": Timestamp(2024-06-17T20:00:05Z),
+  "settlingAt": null,
+  "finishedAt": null,
+  "cancelledAt": null,
+  "cancellationReason": null,
+  "dataQualityFlag": "OK",
+  "symbols": ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "AMD", "INTC", "CRM"]
+}
+
+3. PORTFOLIO DOCUMENT
+---------------------
+Collection: portfolios
+Document ID: portfolio_Pqr456StU
+
+{
+  "portfolioId": "portfolio_Pqr456StU",
+  "matchId": "match_XyZ789AbC",
+  "userId": "abc123DEF456",
+  "userDisplayName": "JaneTrader",
+  "positions": [
+    {
+      "symbol": "NVDA",
+      "exchange": "NASDAQ",
+      "companyName": "NVIDIA Corporation",
+      "allocationCents": 300000,
+      "allocationPercent": 30.0
+    },
+    {
+      "symbol": "AAPL",
+      "exchange": "NASDAQ",
+      "companyName": "Apple Inc.",
+      "allocationCents": 200000,
+      "allocationPercent": 20.0
+    },
+    {
+      "symbol": "MSFT",
+      "exchange": "NASDAQ",
+      "companyName": "Microsoft Corporation",
+      "allocationCents": 200000,
+      "allocationPercent": 20.0
+    },
+    {
+      "symbol": "GOOGL",
+      "exchange": "NASDAQ",
+      "companyName": "Alphabet Inc.",
+      "allocationCents": 150000,
+      "allocationPercent": 15.0
+    },
+    {
+      "symbol": "AMZN",
+      "exchange": "NASDAQ",
+      "companyName": "Amazon.com Inc.",
+      "allocationCents": 150000,
+      "allocationPercent": 15.0
+    }
+  ],
+  "totalAllocationCents": 1000000,
+  "isLocked": true,
+  "submittedAt": Timestamp(2024-06-16T18:30:00Z),
+  "lockedAt": Timestamp(2024-06-17T20:00:00Z),
+  "createdAt": Timestamp(2024-06-15T10:00:00Z)
+}
+
+4. PRICE SNAPSHOT DOCUMENT
+--------------------------
+Collection: priceSnapshots
+Document ID: 2024-06-17_NVDA_NASDAQ
+
+{
+  "snapshotId": "2024-06-17_NVDA_NASDAQ",
+  "symbol": "NVDA",
+  "exchange": "NASDAQ",
+  "date": "2024-06-17",
+  "closePrice": 13125,
+  "closePriceFloat": 131.25,
+  "currency": "USD",
+  "volume": 45678900,
+  "adjustedForSplits": true,
+  "source": "polygon",
+  "fetchedAt": Timestamp(2024-06-17T20:15:30Z),
+  "dataQuality": "LIVE"
+}
+
+5. RESULT DOCUMENT
+------------------
+Collection: results
+Document ID: match_XyZ789AbC_abc123DEF456
+
+{
+  "resultId": "match_XyZ789AbC_abc123DEF456",
+  "matchId": "match_XyZ789AbC",
+  "userId": "abc123DEF456",
+  "userDisplayName": "JaneTrader",
+  "portfolioId": "portfolio_Pqr456StU",
+  "positionResults": [
+    {
+      "symbol": "NVDA",
+      "exchange": "NASDAQ",
+      "allocationCents": 300000,
+      "allocationPercent": 30.0,
+      "startPriceCents": 13125,
+      "endPriceCents": 14437,
+      "returnPercent": 9.996190,
+      "weightedContribution": 2.998857
+    },
+    {
+      "symbol": "AAPL",
+      "exchange": "NASDAQ",
+      "allocationCents": 200000,
+      "allocationPercent": 20.0,
+      "startPriceCents": 21350,
+      "endPriceCents": 21885,
+      "returnPercent": 2.505855,
+      "weightedContribution": 0.501171
+    },
+    {
+      "symbol": "MSFT",
+      "exchange": "NASDAQ",
+      "allocationCents": 200000,
+      "allocationPercent": 20.0,
+      "startPriceCents": 44250,
+      "endPriceCents": 45580,
+      "returnPercent": 3.005650,
+      "weightedContribution": 0.601130
+    },
+    {
+      "symbol": "GOOGL",
+      "exchange": "NASDAQ",
+      "allocationCents": 150000,
+      "allocationPercent": 15.0,
+      "startPriceCents": 17820,
+      "endPriceCents": 17465,
+      "returnPercent": -1.992143,
+      "weightedContribution": -0.298821
+    },
+    {
+      "symbol": "AMZN",
+      "exchange": "NASDAQ",
+      "allocationCents": 150000,
+      "allocationPercent": 15.0,
+      "startPriceCents": 18750,
+      "endPriceCents": 19312,
+      "returnPercent": 2.997333,
+      "weightedContribution": 0.449600
+    }
+  ],
+  "portfolioReturnPercent": 4.251937,
+  "startValueCents": 1000000,
+  "endValueCents": 1042519,
+  "rank": 3,
+  "totalParticipants": 15,
+  "submittedAt": Timestamp(2024-06-16T18:30:00Z),
+  "calculatedAt": Timestamp(2024-06-24T20:05:30Z),
+  "dataQualityFlags": []
+}
+
+6. LEADERBOARD ENTRY DOCUMENT
+-----------------------------
+Collection: leaderboard
+Document ID: match_XyZ789AbC_3
+
+{
+  "entryId": "match_XyZ789AbC_3",
+  "matchId": "match_XyZ789AbC",
+  "rank": 3,
+  "userId": "abc123DEF456",
+  "userDisplayName": "JaneTrader",
+  "userPhotoURL": "https://storage.googleapis.com/wsfl-avatars/abc123DEF456.jpg",
+  "portfolioReturnPercent": 4.25,
+  "endValueCents": 1042519,
+  "topHolding": "NVDA",
+  "topHoldingReturn": 9.99
+}
+
+7. MATCH PARTICIPANT DOCUMENT
+-----------------------------
+Collection: matchParticipants
+Document ID: match_XyZ789AbC_abc123DEF456
+
+{
+  "participantId": "match_XyZ789AbC_abc123DEF456",
+  "matchId": "match_XyZ789AbC",
+  "userId": "abc123DEF456",
+  "userDisplayName": "JaneTrader",
+  "joinedAt": Timestamp(2024-06-15T10:00:00Z),
+  "hasSubmittedPortfolio": true,
+  "portfolioId": "portfolio_Pqr456StU"
+}
+
+8. SYMBOL CACHE DOCUMENT
+------------------------
+Collection: symbolCache
+Document ID: NVDA_NASDAQ
+
+{
+  "cacheId": "NVDA_NASDAQ",
+  "symbol": "NVDA",
+  "exchange": "NASDAQ",
+  "companyName": "NVIDIA Corporation",
+  "sector": "Technology",
+  "industry": "Semiconductors",
+  "marketCap": "LARGE",
+  "avgVolume30d": 48500000,
+  "isEligible": true,
+  "ineligibilityReason": null,
+  "lastUpdated": Timestamp(2024-06-20T06:00:00Z)
+}
+
+9. SYSTEM CONFIG DOCUMENT
+-------------------------
+Collection: systemConfig
+Document ID: config
+
+{
+  "maintenanceMode": false,
+  "minAppVersion": "1.0.0",
+  "maxMatchesPerUser": 5,
+  "priceDataProvider": "polygon",
+  "marketHolidays": [
+    "2024-01-01",
+    "2024-01-15",
+    "2024-02-19",
+    "2024-03-29",
+    "2024-05-27",
+    "2024-06-19",
+    "2024-07-04",
+    "2024-09-02",
+    "2024-11-28",
+    "2024-12-25"
+  ],
+  "featureFlags": {
+    "newUserOnboarding": true,
+    "socialLogin": true
+  }
+}
+
+10. AUDIT LOG DOCUMENT
+----------------------
+Collection: auditLog
+Document ID: log_Abc123Xyz789
+
+{
+  "logId": "log_Abc123Xyz789",
+  "action": "PORTFOLIO_SUBMITTED",
+  "actorId": "abc123DEF456",
+  "targetType": "PORTFOLIO",
+  "targetId": "portfolio_Pqr456StU",
+  "details": {
+    "matchId": "match_XyZ789AbC",
+    "symbolCount": 5,
+    "totalAllocation": 1000000
+  },
+  "timestamp": Timestamp(2024-06-16T18:30:00Z),
+  "ipAddress": "192.168.1.100"
+}
+
+================================================================================
+DATA RELATIONSHIPS SUMMARY
+================================================================================
+
+User (users)
+  |
+  +--< creates >-- Match (matches)
+  |
+  +--< joins >-- MatchParticipant (matchParticipants)
+  |
+  +--< submits >-- Portfolio (portfolios)
+  |
+  +--< receives >-- Result (results)
+
+Match (matches)
+  |
+  +--< contains >-- MatchParticipant (matchParticipants)
+  |
+  +--< contains >-- Portfolio (portfolios)
+  |
+  +--< uses >-- PriceSnapshot (priceSnapshots)
+  |
+  +--< produces >-- Result (results)
+  |
+  +--< produces >-- LeaderboardEntry (leaderboard)
+
+Symbol (symbolCache)
+  |
+  +--< priced in >-- PriceSnapshot (priceSnapshots)
+  |
+  +--< held in >-- Portfolio.positions
+
+================================================================================
+END OF SAMPLE DOCUMENTS
+================================================================================

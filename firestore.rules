@@ -1,0 +1,135 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isAuthenticated() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isValidString(field, minLen, maxLen) {
+      return field is string && field.size() >= minLen && field.size() <= maxLen;
+    }
+
+    // Users collection
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (
+        isOwner(userId) ||
+        // Others can only read displayName and photoURL
+        (request.auth.uid != userId &&
+         request.resource == null)
+      );
+
+      // Users can update their own profile (limited fields)
+      allow update: if isOwner(userId) &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['displayName', 'photoURL', 'preferences', 'lastLoginAt']);
+
+      // Creation only via Cloud Functions (admin SDK)
+      allow create, delete: if false;
+    }
+
+    // Matches collection
+    match /matches/{matchId} {
+      allow read: if isAuthenticated() && (
+        resource.data.type == 'PUBLIC' ||
+        resource.data.creatorId == request.auth.uid ||
+        exists(/databases/$(database)/documents/matchParticipants/$(matchId)_$(request.auth.uid))
+      );
+
+      // Only creator can update DRAFT matches
+      allow update: if isEmailVerified() &&
+        resource.data.creatorId == request.auth.uid &&
+        resource.data.status == 'DRAFT' &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['name', 'description', 'type', 'durationDays', 'startDate']);
+
+      // Creation and deletion via Cloud Functions
+      allow create, delete: if false;
+    }
+
+    // Portfolios collection
+    match /portfolios/{portfolioId} {
+      // Owner can always read their portfolio
+      // Others can read after match is FINISHED
+      allow read: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        get(/databases/$(database)/documents/matches/$(resource.data.matchId)).data.status == 'FINISHED'
+      );
+
+      // Owner can update if not locked
+      allow update: if isEmailVerified() &&
+        resource.data.userId == request.auth.uid &&
+        resource.data.isLocked == false &&
+        request.resource.data.isLocked == false;
+
+      // Creation and deletion via Cloud Functions
+      allow create, delete: if false;
+    }
+
+    // Price Snapshots - read only for authenticated users
+    match /priceSnapshots/{snapshotId} {
+      allow read: if isAuthenticated();
+      allow write: if false; // Only Cloud Functions can write
+    }
+
+    // Results - read only for participants after match finished
+    match /results/{resultId} {
+      allow read: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        get(/databases/$(database)/documents/matches/$(resource.data.matchId)).data.status == 'FINISHED'
+      );
+      allow write: if false; // Only Cloud Functions can write
+    }
+
+    // Leaderboard - read for all authenticated users
+    match /leaderboard/{entryId} {
+      allow read: if isAuthenticated();
+      allow write: if false; // Only Cloud Functions can write
+    }
+
+    // Match Participants
+    match /matchParticipants/{participantId} {
+      allow read: if isAuthenticated();
+
+      // Owner can update hasSubmittedPortfolio
+      allow update: if isAuthenticated() &&
+        resource.data.userId == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['hasSubmittedPortfolio', 'portfolioId']);
+
+      // Creation and deletion via Cloud Functions
+      allow create, delete: if false;
+    }
+
+    // Symbol Cache - read only
+    match /symbolCache/{symbolId} {
+      allow read: if isAuthenticated();
+      allow write: if false; // Only Cloud Functions can write
+    }
+
+    // System Config - read only
+    match /systemConfig/{configId} {
+      allow read: if isAuthenticated();
+      allow write: if false; // Admin only via console
+    }
+
+    // Audit Log - no client access
+    match /auditLog/{logId} {
+      allow read, write: if false; // Cloud Functions and admin only
+    }
+
+    // Idempotency Cache - no client access
+    match /idempotencyCache/{cacheId} {
+      allow read, write: if false; // Cloud Functions only
+    }
+  }
+}

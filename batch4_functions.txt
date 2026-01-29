@@ -1,0 +1,440 @@
+================================================================================
+BATCH 4 — BACKEND LOGIC & CLOUD FUNCTIONS
+Wall Street Fantasy League MVP — Cloud Functions List
+================================================================================
+
+1. CLOUD FUNCTIONS OVERVIEW
+---------------------------
+
+Runtime: Node.js 18
+Region: us-central1 (primary), us-east1 (failover consideration)
+Memory: 256MB default, 512MB for settlement functions
+Timeout: 60s default, 540s for settlement functions
+
+Function Categories:
+- AUTH: User lifecycle functions
+- MATCH: Match management functions
+- PORTFOLIO: Portfolio operations
+- PRICE: Price data functions
+- SETTLEMENT: Match settlement functions
+- SCHEDULED: Cloud Scheduler triggered functions
+
+2. AUTH FUNCTIONS
+-----------------
+
+FUNC-AUTH-001: createUserProfile
+--------------------------------
+Trigger: Firebase Auth onCreate
+Input:
+  - user.uid: string (Firebase Auth UID)
+  - user.email: string
+  - user.displayName: string (may be null for email signup)
+  - user.photoURL: string (may be null)
+  - user.emailVerified: boolean
+Output:
+  - Success: User document created in Firestore
+  - Error: Logged, no retry (auth user exists)
+Responsibilities:
+  1. Create user document in users collection
+  2. Set default values for stats, preferences
+  3. Generate unique display name if not provided
+  4. Log to auditLog collection
+  5. Send welcome email (optional MVP)
+Idempotency: Check if user doc exists before creating
+
+FUNC-AUTH-002: deleteUserAccount
+--------------------------------
+Trigger: HTTPS Callable
+Input:
+  - context.auth.uid: string (authenticated user)
+  - data.confirmation: string (must equal "DELETE")
+Output:
+  - Success: { success: true, message: "Account scheduled for deletion" }
+  - Error: { error: true, code: string, message: string }
+Responsibilities:
+  1. Verify user is authenticated
+  2. Verify confirmation string
+  3. Mark user status = "DELETED"
+  4. Anonymize display name to "[Deleted User]"
+  5. Delete unlocked portfolios in OPEN matches
+  6. Preserve results in FINISHED matches
+  7. Remove from matchParticipants where portfolio not locked
+  8. Schedule Firebase Auth account deletion
+  9. Log to auditLog
+Idempotency: Safe to call multiple times
+
+3. MATCH FUNCTIONS
+------------------
+
+FUNC-MATCH-001: createMatch
+---------------------------
+Trigger: HTTPS Callable
+Input:
+  - context.auth.uid: string
+  - data.name: string (3-50 chars)
+  - data.description: string (0-200 chars, optional)
+  - data.type: "PUBLIC" | "PRIVATE"
+  - data.durationDays: 1 | 3 | 5 | 7 | 14 | 30
+  - data.startDate: ISO date string
+Output:
+  - Success: { matchId: string, matchCode?: string }
+  - Error: { error: true, code: string, message: string }
+Responsibilities:
+  1. Verify user email is verified
+  2. Verify user has < 5 active created matches
+  3. Validate start date (future, trading day)
+  4. Calculate end date based on duration
+  5. Validate end date (trading day)
+  6. Generate match code if PRIVATE
+  7. Create match document with status = DRAFT
+  8. Log to auditLog
+Validation:
+  - Name: 3-50 chars, alphanumeric + spaces
+  - Start date: >= now + 24 hours, <= now + 30 days
+  - Start date: Must be trading day (check holidays)
+
+FUNC-MATCH-002: publishMatch
+----------------------------
+Trigger: HTTPS Callable
+Input:
+  - context.auth.uid: string
+  - data.matchId: string
+Output:
+  - Success: { success: true }
+  - Error: { error: true, code: string, message: string }
+Responsibilities:
+  1. Verify user is match creator
+  2. Verify match is in DRAFT status
+  3. Validate all match fields complete
+  4. Update status to OPEN
+  5. Set publishedAt timestamp
+  6. Log to auditLog
+
+FUNC-MATCH-003: cancelMatch
+---------------------------
+Trigger: HTTPS Callable
+Input:
+  - context.auth.uid: string
+  - data.matchId: string
+Output:
+  - Success: { success: true }
+  - Error: { error: true, code: string, message: string }
+Responsibilities:
+  1. Verify user is match creator
+  2. Verify match is in DRAFT or OPEN status
+  3. Update status to CANCELLED
+  4. Set cancellationReason = "CREATOR_CANCELLED"
+  5. Delete all portfolios for this match
+  6. Delete all matchParticipants for this match
+  7. Notify participants (if any)
+  8. Log to auditLog
+
+FUNC-MATCH-004: joinMatch
+-------------------------
+Trigger: HTTPS Callable
+Input:
+  - context.auth.uid: string
+  - data.matchId: string
+  - data.matchCode: string (required for PRIVATE matches)
+Output:
+  - Success: { success: true, participantId: string }
+  - Error: { error: true, code: string, message: string }
+Responsibilities:
+  1. Verify user email is verified
+  2. Verify match exists and is OPEN
+  3. If PRIVATE, verify matchCode
+  4. Verify user not already in match
+  5. Verify match not at maxPlayers
+  6. Create matchParticipant document
+  7. Increment match.playerCount
+  8. Log to auditLog
+Idempotency: Return existing participant if already joined
+
+FUNC-MATCH-005: leaveMatch
+--------------------------
+Trigger: HTTPS Callable
+Input:
+  - context.auth.uid: string
+  - data.matchId: string
+Output:
+  - Success: { success: true }
+  - Error: { error: true, code: string, message: string }
+Responsibilities:
+  1. Verify user is participant
+  2. Verify match is OPEN
+  3. Verify user's portfolio is not locked
+  4. Delete user's portfolio (if exists)
+  5. Delete matchParticipant document
+  6. Decrement match.playerCount
+  7. Log to auditLog
+
+4. PORTFOLIO FUNCTIONS
+----------------------
+
+FUNC-PORT-001: submitPortfolio
+------------------------------
+Trigger: HTTPS Callable
+Input:
+  - context.auth.uid: string
+  - data.matchId: string
+  - data.positions: Array of {symbol, exchange, allocationCents}
+Output:
+  - Success: { portfolioId: string, submittedAt: timestamp }
+  - Error: { error: true, code: string, message: string }
+Responsibilities:
+  1. Verify user email is verified
+  2. Verify match exists and is OPEN
+  3. Verify user is participant
+  4. Verify current time < entryDeadline
+  5. Validate positions array (exactly 5)
+  6. Validate each position:
+     - Symbol exists in symbolCache
+     - Symbol is eligible
+     - Allocation 50000-500000 cents
+  7. Validate total allocation = 1000000 cents
+  8. Fetch company names from symbolCache
+  9. Create or update portfolio document
+  10. Update matchParticipant.hasSubmittedPortfolio = true
+  11. Update match.symbols array (add new symbols)
+  12. Log to auditLog
+Idempotency: Updates replace previous portfolio
+
+FUNC-PORT-002: getPortfolio
+---------------------------
+Trigger: HTTPS Callable
+Input:
+  - context.auth.uid: string
+  - data.matchId: string
+  - data.userId: string (optional, for viewing others after match ends)
+Output:
+  - Success: { portfolio: PortfolioDocument }
+  - Error: { error: true, code: string, message: string }
+Responsibilities:
+  1. If userId not provided, use context.auth.uid
+  2. Verify requestor can view portfolio:
+     - Own portfolio: always
+     - Other's portfolio: only if match FINISHED
+  3. Fetch and return portfolio document
+
+5. PRICE FUNCTIONS
+------------------
+
+FUNC-PRICE-001: fetchPriceSnapshot
+----------------------------------
+Trigger: HTTPS Callable (internal) / Pub/Sub
+Input:
+  - data.symbols: Array of {symbol, exchange}
+  - data.date: ISO date string
+Output:
+  - Success: { snapshots: Array of PriceSnapshot, failures: Array }
+  - Error: { error: true, code: string, message: string }
+Responsibilities:
+  1. Call external price API for each symbol
+  2. Validate response data
+  3. Create priceSnapshot documents
+  4. Return list of successes and failures
+  5. Log failures for retry
+Retry Logic:
+  - On failure: retry 3 times with exponential backoff
+  - Backoff: 5s, 15s, 45s
+
+FUNC-PRICE-002: searchSymbols
+-----------------------------
+Trigger: HTTPS Callable
+Input:
+  - context.auth.uid: string
+  - data.query: string (1-10 chars)
+  - data.limit: number (default 10, max 20)
+Output:
+  - Success: { symbols: Array of SymbolCache }
+  - Error: { error: true, code: string, message: string }
+Responsibilities:
+  1. Verify user is authenticated
+  2. Sanitize query (uppercase, alphanumeric only)
+  3. Query symbolCache with prefix match
+  4. Filter to isEligible == true
+  5. Return up to limit results
+Rate Limit: 30 requests per minute per user
+
+FUNC-PRICE-003: validateSymbol
+------------------------------
+Trigger: HTTPS Callable
+Input:
+  - context.auth.uid: string
+  - data.symbol: string
+  - data.exchange: string
+Output:
+  - Success: { valid: true, symbol: SymbolCache }
+  - Error: { valid: false, reason: string }
+Responsibilities:
+  1. Lookup symbol in symbolCache
+  2. Verify isEligible == true
+  3. Return symbol details or rejection reason
+
+6. SETTLEMENT FUNCTIONS
+-----------------------
+
+FUNC-SETTLE-001: startMatch
+---------------------------
+Trigger: Pub/Sub from Cloud Scheduler
+Input:
+  - data.matchId: string
+Output:
+  - Success: { started: true }
+  - Error: { started: false, reason: string }
+Responsibilities:
+  1. Verify match is OPEN
+  2. Verify startDate has passed
+  3. Count portfolios with submissions
+  4. If < 2 portfolios: cancel match
+  5. Fetch start prices for all symbols in match
+  6. If price fetch fails: schedule retry
+  7. Store price snapshots
+  8. Lock all portfolios (isLocked = true)
+  9. Update match status to LIVE
+  10. Set liveAt timestamp
+  11. Log to auditLog
+Timeout: 540 seconds
+Idempotency: Check if already LIVE before processing
+
+FUNC-SETTLE-002: endMatch
+-------------------------
+Trigger: Pub/Sub from Cloud Scheduler
+Input:
+  - data.matchId: string
+Output:
+  - Success: { ended: true }
+  - Error: { ended: false, reason: string }
+Responsibilities:
+  1. Verify match is LIVE
+  2. Verify endDate has passed
+  3. Update match status to SETTLING
+  4. Set settlingAt timestamp
+  5. Trigger FUNC-SETTLE-003 (settleMatch)
+  6. Log to auditLog
+Idempotency: Check if already SETTLING/FINISHED
+
+FUNC-SETTLE-003: settleMatch
+----------------------------
+Trigger: Pub/Sub (from endMatch or retry)
+Input:
+  - data.matchId: string
+  - data.retryCount: number (default 0)
+Output:
+  - Success: { settled: true, results: number }
+  - Error: { settled: false, retryScheduled: boolean }
+Responsibilities:
+  1. Fetch end prices for all symbols
+  2. If price fetch fails and retryCount < 3:
+     - Schedule retry with exponential backoff
+     - Return with retryScheduled = true
+  3. If price fetch fails and retryCount >= 3:
+     - Use last available prices
+     - Set dataQualityFlag = "STALE_PRICES"
+  4. For each portfolio:
+     - Calculate position returns
+     - Calculate portfolio return
+     - Calculate end value
+     - Create Result document
+  5. Rank all results
+  6. Apply tie-breakers
+  7. Create LeaderboardEntry documents
+  8. Update user stats
+  9. Update match status to FINISHED
+  10. Set finishedAt timestamp
+  11. Log to auditLog
+Timeout: 540 seconds
+Idempotency: Check if already FINISHED, use transaction
+
+FUNC-SETTLE-004: forceSettlement
+--------------------------------
+Trigger: Cloud Scheduler (runs hourly)
+Input: None (queries for stuck matches)
+Output:
+  - Success: { forced: number }
+Responsibilities:
+  1. Query matches where:
+     - status == SETTLING
+     - settlingAt < now - 3 hours
+  2. For each stuck match:
+     - Force settlement with available data
+     - Set dataQualityFlag accordingly
+  3. Log forced settlements
+
+7. SCHEDULED FUNCTIONS
+----------------------
+
+FUNC-SCHED-001: processMatchStarts
+----------------------------------
+Trigger: Cloud Scheduler (every 15 minutes)
+Schedule: */15 * * * *
+Responsibilities:
+  1. Query matches where:
+     - status == OPEN
+     - startDate <= now
+  2. For each match:
+     - Publish message to startMatch topic
+  3. Log batch processing
+
+FUNC-SCHED-002: processMatchEnds
+--------------------------------
+Trigger: Cloud Scheduler (every 15 minutes)
+Schedule: */15 * * * *
+Responsibilities:
+  1. Query matches where:
+     - status == LIVE
+     - endDate <= now
+  2. For each match:
+     - Publish message to endMatch topic
+  3. Log batch processing
+
+FUNC-SCHED-003: refreshSymbolCache
+----------------------------------
+Trigger: Cloud Scheduler (daily at 6 AM ET)
+Schedule: 0 6 * * *
+Responsibilities:
+  1. Fetch updated symbol list from data provider
+  2. Update symbolCache documents
+  3. Mark delisted symbols as ineligible
+  4. Add new symbols
+  5. Log refresh stats
+
+FUNC-SCHED-004: cleanupExpiredData
+----------------------------------
+Trigger: Cloud Scheduler (weekly)
+Schedule: 0 3 * * 0
+Responsibilities:
+  1. Delete auditLog entries > 90 days
+  2. Delete cancelled match data > 30 days
+  3. Purge deleted user data > 30 days (GDPR)
+  4. Log cleanup stats
+
+8. FUNCTION DEPENDENCIES
+------------------------
+
+Function               | Depends On
+-----------------------|------------------------------------------
+createUserProfile      | (none - Firebase Auth trigger)
+deleteUserAccount      | (none)
+createMatch            | (none)
+publishMatch           | createMatch
+cancelMatch            | (none)
+joinMatch              | publishMatch
+leaveMatch             | joinMatch
+submitPortfolio        | joinMatch, searchSymbols
+getPortfolio           | submitPortfolio
+fetchPriceSnapshot     | (external API)
+searchSymbols          | refreshSymbolCache
+validateSymbol         | refreshSymbolCache
+startMatch             | fetchPriceSnapshot, processMatchStarts
+endMatch               | startMatch, processMatchEnds
+settleMatch            | endMatch, fetchPriceSnapshot
+forceSettlement        | settleMatch
+processMatchStarts     | (scheduler)
+processMatchEnds       | (scheduler)
+refreshSymbolCache     | (external API, scheduler)
+cleanupExpiredData     | (scheduler)
+
+================================================================================
+END OF CLOUD FUNCTIONS LIST
+================================================================================

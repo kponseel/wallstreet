@@ -1,0 +1,283 @@
+================================================================================
+BATCH 7 — QA, EDGE CASES & MVP POLISH
+Wall Street Fantasy League MVP — Readiness Checklist & Performance Budget
+================================================================================
+
+1. MVP READINESS CHECKLIST
+--------------------------
+
+1.1 Core Functionality
+----------------------
+[ ] AUTH-01: Email signup/signin working
+[ ] AUTH-02: Google OAuth working
+[ ] AUTH-03: Apple Sign-In working (if iOS)
+[ ] AUTH-04: Email verification enforced
+[ ] AUTH-05: Password reset working
+[ ] AUTH-06: Sign out working
+
+[ ] MATCH-01: Create public match working
+[ ] MATCH-02: Create private match working
+[ ] MATCH-03: Match code generation unique
+[ ] MATCH-04: Join match working
+[ ] MATCH-05: Leave match working
+[ ] MATCH-06: Match lobby displays correctly
+[ ] MATCH-07: Match detail displays correctly
+
+[ ] PORT-01: Portfolio builder functional
+[ ] PORT-02: Symbol search working
+[ ] PORT-03: Allocation sliders working
+[ ] PORT-04: Validation rules enforced
+[ ] PORT-05: Portfolio submission working
+[ ] PORT-06: Portfolio editing before lock
+[ ] PORT-07: Portfolio locked at deadline
+
+[ ] SETT-01: Match starts automatically
+[ ] SETT-02: Match cancels if <2 players
+[ ] SETT-03: Prices fetched at start
+[ ] SETT-04: Match ends automatically
+[ ] SETT-05: Prices fetched at end
+[ ] SETT-06: Settlement calculates correctly
+[ ] SETT-07: Rankings generated
+[ ] SETT-08: Results stored
+[ ] SETT-09: Leaderboard populated
+
+[ ] UI-01: Mobile responsive design
+[ ] UI-02: Loading states shown
+[ ] UI-03: Error states handled
+[ ] UI-04: Empty states shown
+
+1.2 Security & Compliance
+-------------------------
+[ ] SEC-01: Firestore security rules deployed
+[ ] SEC-02: Unverified users blocked from actions
+[ ] SEC-03: Cross-user data access prevented
+[ ] SEC-04: Rate limiting configured
+[ ] SEC-05: Input validation on all forms
+[ ] SEC-06: HTTPS enforced
+[ ] SEC-07: API keys secured in environment
+[ ] SEC-08: Terms of Service page exists
+[ ] SEC-09: Privacy Policy page exists
+[ ] SEC-10: Cookie consent (if applicable)
+
+1.3 Infrastructure
+------------------
+[ ] INFRA-01: Firebase project configured
+[ ] INFRA-02: Firestore indexes deployed
+[ ] INFRA-03: Cloud Functions deployed
+[ ] INFRA-04: Cloud Scheduler jobs configured
+[ ] INFRA-05: Firebase Hosting configured
+[ ] INFRA-06: Custom domain (if applicable)
+[ ] INFRA-07: SSL certificate active
+[ ] INFRA-08: Error monitoring configured
+[ ] INFRA-09: Logging configured
+[ ] INFRA-10: Backup strategy defined
+
+1.4 Data & Integrations
+-----------------------
+[ ] DATA-01: Price API credentials configured
+[ ] DATA-02: Symbol cache populated
+[ ] DATA-03: Holiday calendar loaded
+[ ] DATA-04: Fallback API configured
+[ ] DATA-05: Test prices verified accurate
+
+1.5 Testing
+-----------
+[ ] TEST-01: Unit tests passing (>80% coverage)
+[ ] TEST-02: Integration tests passing
+[ ] TEST-03: E2E tests passing
+[ ] TEST-04: Load test completed
+[ ] TEST-05: Security audit completed
+[ ] TEST-06: Manual QA completed
+[ ] TEST-07: Cross-browser testing done
+[ ] TEST-08: Mobile device testing done
+
+2. PERFORMANCE BUDGET
+---------------------
+
+2.1 Frontend Performance
+------------------------
+Metric                  | Budget    | Tool
+------------------------|-----------|------------------
+First Contentful Paint  | < 1.5s    | Lighthouse
+Largest Contentful Paint| < 2.5s    | Lighthouse
+Time to Interactive     | < 3.0s    | Lighthouse
+Total Blocking Time     | < 200ms   | Lighthouse
+Cumulative Layout Shift | < 0.1     | Lighthouse
+Lighthouse Score        | > 80      | Lighthouse
+
+Bundle Size:
+  - Main bundle: < 200KB gzipped
+  - Vendor bundle: < 300KB gzipped
+  - Total JS: < 500KB gzipped
+  - Total CSS: < 50KB gzipped
+
+2.2 API Performance
+-------------------
+Endpoint                | P50      | P95      | P99
+------------------------|----------|----------|----------
+Match lobby list        | 200ms    | 500ms    | 1000ms
+Match details           | 100ms    | 300ms    | 500ms
+Portfolio submit        | 300ms    | 800ms    | 1500ms
+Symbol search           | 150ms    | 400ms    | 700ms
+Leaderboard load        | 200ms    | 500ms    | 1000ms
+
+2.3 Backend Performance
+-----------------------
+Function                | Execution Time | Memory
+------------------------|----------------|--------
+createMatch             | < 2s           | 256MB
+submitPortfolio         | < 3s           | 256MB
+startMatch              | < 60s          | 512MB
+settleMatch             | < 300s         | 512MB
+symbolSearch            | < 1s           | 256MB
+
+2.4 Database Performance
+------------------------
+Operation               | Budget    | Notes
+------------------------|-----------|------------------
+Single doc read         | < 50ms    | Firestore SLA
+Query (20 docs)         | < 100ms   | With proper indexes
+Batch write (100 docs)  | < 500ms   | Settlement writes
+Transaction             | < 1s      | With retries
+
+3. COST BUDGET (Monthly)
+------------------------
+
+3.1 Firebase Costs (Estimated)
+------------------------------
+Service                 | Free Tier | Projected | Budget
+------------------------|-----------|-----------|--------
+Authentication          | 50K MAU   | 5K MAU    | $0
+Firestore Reads         | 50K/day   | 500K/day  | $3/day
+Firestore Writes        | 20K/day   | 50K/day   | $1/day
+Firestore Storage       | 1GB       | 2GB       | $0.18
+Cloud Functions Invokes | 2M/month  | 500K/month| $0
+Cloud Functions Compute | 400K GB-s | 200K GB-s | $0
+Hosting Bandwidth       | 10GB      | 50GB      | $6
+Cloud Scheduler         | 3 jobs    | 5 jobs    | $0.30
+
+Estimated Monthly Firebase: $100-150
+
+3.2 External API Costs
+----------------------
+Service                 | Plan      | Cost
+------------------------|-----------|--------
+Polygon.io              | Starter   | $29/month
+Alpha Vantage (backup)  | Free      | $0
+
+Total External APIs: $29/month
+
+3.3 Total Monthly Budget
+------------------------
+Item                    | Cost
+------------------------|--------
+Firebase Services       | $150
+External APIs           | $29
+Domain/SSL              | $15
+Monitoring (optional)   | $0-50
+------------------------|--------
+TOTAL                   | $194-244/month
+
+4. SCALE PROJECTIONS
+--------------------
+
+4.1 User Growth Scenarios
+-------------------------
+Scenario    | Users | Matches/Day | Reads/Day  | Monthly Cost
+------------|-------|-------------|------------|-------------
+Launch      | 100   | 10          | 50,000     | $50
+Month 3     | 1,000 | 100         | 500,000    | $150
+Month 6     | 5,000 | 500         | 2,500,000  | $450
+Month 12    | 20,000| 2,000       | 10,000,000 | $1,500
+
+4.2 Scaling Triggers
+--------------------
+Trigger                      | Action Required
+-----------------------------|--------------------------------
+Firestore reads > 5M/day     | Consider caching layer
+Cloud Functions > 100K/day   | Optimize or upgrade tier
+Settlement > 5 min           | Parallelize processing
+API rate limits hit          | Upgrade provider tier
+
+5. MONITORING DASHBOARD
+-----------------------
+
+5.1 Key Metrics to Track
+------------------------
+Business Metrics:
+  - Daily Active Users (DAU)
+  - Matches created per day
+  - Portfolios submitted per day
+  - Average players per match
+  - User retention (D1, D7, D30)
+
+Technical Metrics:
+  - API response times (p50, p95)
+  - Error rates by endpoint
+  - Cloud Function execution times
+  - Firestore read/write counts
+  - Settlement success rate
+
+Cost Metrics:
+  - Daily Firestore reads
+  - Daily Cloud Function invocations
+  - Bandwidth usage
+  - External API calls
+
+5.2 Alerting Thresholds
+-----------------------
+Alert               | Warning   | Critical  | Action
+--------------------|-----------|-----------|------------------
+API error rate      | > 5%      | > 20%     | Investigate
+Settlement failures | > 0       | > 1/hour  | On-call
+Response time (p95) | > 2s      | > 5s      | Investigate
+Daily cost          | > $10     | > $20     | Review usage
+
+6. LAUNCH CHECKLIST
+-------------------
+
+6.1 Pre-Launch (T-7 days)
+-------------------------
+[ ] All P0 tests passing
+[ ] Security audit complete
+[ ] Performance budget met
+[ ] Cost projections reviewed
+[ ] Monitoring dashboards ready
+[ ] Runbooks documented
+[ ] On-call rotation set
+
+6.2 Launch Day
+--------------
+[ ] Final smoke tests passed
+[ ] All systems green
+[ ] Team on standby
+[ ] Rollback plan ready
+[ ] Announcement prepared
+
+6.3 Post-Launch (T+1 day)
+-------------------------
+[ ] Metrics reviewed
+[ ] No critical errors
+[ ] User feedback collected
+[ ] Hot fixes deployed (if any)
+[ ] Retrospective scheduled
+
+7. SIGN-OFF REQUIREMENTS
+------------------------
+
+Role            | Sign-off Item                  | Date | Signature
+----------------|--------------------------------|------|----------
+Engineering Lead| All tests passing              |      |
+Engineering Lead| Performance budget met         |      |
+Security Lead   | Security audit passed          |      |
+QA Lead         | Manual testing complete        |      |
+Product Manager | Feature complete per spec      |      |
+Product Manager | UX review approved             |      |
+Operations      | Monitoring configured          |      |
+Operations      | On-call rotation set           |      |
+Legal           | ToS/Privacy Policy approved    |      |
+Executive       | Launch approved                |      |
+
+================================================================================
+END OF MVP READINESS CHECKLIST & PERFORMANCE BUDGET
+================================================================================

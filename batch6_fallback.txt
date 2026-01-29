@@ -1,0 +1,345 @@
+================================================================================
+BATCH 6 — MARKET DATA INTEGRATION
+Wall Street Fantasy League MVP — Fallback Plan for Price API Failures
+================================================================================
+
+1. FALLBACK STRATEGY OVERVIEW
+-----------------------------
+
+Priority Order:
+  1. Primary API (Polygon.io) - retry with backoff
+  2. Secondary API (Alpha Vantage) - immediate fallback
+  3. Cached data (previous trading day)
+  4. Manual intervention (alert operations)
+
+Design Principle: Settlement must complete within 3 hours
+User Impact: Minimize, but prefer delayed accurate data over inaccurate fast data
+
+2. FAILURE SCENARIOS
+--------------------
+
+2.1 Transient API Failure
+-------------------------
+Symptoms:
+  - HTTP 500, 502, 503 errors
+  - Timeout (>30 seconds)
+  - Connection refused
+  - Rate limit (429)
+
+Expected Duration: Minutes to hours
+Resolution: Retry with exponential backoff
+
+2.2 Extended Outage
+-------------------
+Symptoms:
+  - API unreachable for >1 hour
+  - All retries exhausted
+  - Status page shows incident
+
+Expected Duration: Hours to days
+Resolution: Switch to backup provider
+
+2.3 Data Quality Issue
+----------------------
+Symptoms:
+  - API returns data but values suspicious
+  - Price change >50% without news
+  - Missing symbols in response
+
+Expected Duration: Until provider fixes
+Resolution: Cross-reference with backup, flag for review
+
+2.4 Authentication Failure
+--------------------------
+Symptoms:
+  - HTTP 401, 403 errors
+  - API key expired or revoked
+
+Expected Duration: Until key rotated
+Resolution: Alert immediately, rotate keys
+
+3. RETRY STRATEGY
+-----------------
+
+3.1 Retry Configuration
+-----------------------
+Max Retries: 5
+Initial Delay: 5 seconds
+Max Delay: 5 minutes
+Backoff Factor: 2x
+Jitter: +/- 20% randomization
+
+3.2 Retry Schedule
+------------------
+Attempt | Delay Before | Cumulative Time
+--------|--------------|----------------
+1       | 0s           | 0s
+2       | 5s           | 5s
+3       | 10s          | 15s
+4       | 20s          | 35s
+5       | 40s          | 75s
+6       | (give up)    | 75s
+
+With jitter, total retry window: ~60-90 seconds
+
+3.3 Retry Decision Logic
+------------------------
+Function: shouldRetry(error, attemptNumber)
+
+Retry (transient):
+  - HTTP 429 (rate limit)
+  - HTTP 500, 502, 503, 504
+  - Network timeout
+  - Connection reset
+
+Do NOT Retry (permanent):
+  - HTTP 400 (bad request)
+  - HTTP 401 (auth failure) - alert instead
+  - HTTP 404 (symbol not found)
+  - Invalid JSON response
+  - Business logic error
+
+4. BACKUP PROVIDER FALLBACK
+---------------------------
+
+4.1 Trigger Conditions
+----------------------
+Switch to backup when:
+  - Primary retries exhausted (5 failures)
+  - Primary returns invalid data
+  - Circuit breaker trips (5+ failures in 1 minute)
+
+4.2 Alpha Vantage Fallback
+--------------------------
+Endpoint: GLOBAL_QUOTE function
+Rate Limit: 5 requests/minute (free tier)
+Implementation:
+  1. Queue symbol requests (respect rate limit)
+  2. Fetch prices sequentially
+  3. Convert response to standard format
+  4. Set dataQuality = "ESTIMATED"
+
+Request:
+  GET https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=AAPL&apikey=XXX
+
+Response:
+  {
+    "Global Quote": {
+      "01. symbol": "AAPL",
+      "05. price": "185.9200",
+      "07. latest trading day": "2024-06-20"
+    }
+  }
+
+4.3 Backup Limitations
+----------------------
+- Slower (5/min vs 5/sec)
+- May have slight price differences
+- Less reliable long-term
+- Free tier very limited
+
+5. CACHED DATA FALLBACK
+-----------------------
+
+5.1 Trigger Conditions
+----------------------
+Use cached data when:
+  - Both primary and backup APIs fail
+  - Time elapsed > 2 hours since settlement start
+  - Must complete settlement
+
+5.2 Cache Selection
+-------------------
+Function: getBestCachedPrice(symbol, targetDate)
+
+Algorithm:
+  Step 1: Try exact date match in priceSnapshots
+  Step 2: If not found, try previous trading day
+  Step 3: If not found, try up to 5 days back
+  Step 4: Return best match with staleness indicator
+
+Step 5: If no price within 5 days:
+  - Mark as UNAVAILABLE
+  - Exclude position from return calculation
+  - Log critical error
+
+5.3 Staleness Calculation
+-------------------------
+staleDays = targetDate - cachedDate (in trading days)
+
+Staleness Levels:
+  - 0 days: LIVE (correct date)
+  - 1 day: STALE (yesterday's close)
+  - 2-5 days: VERY_STALE (use with warning)
+  - >5 days: UNACCEPTABLE (exclude)
+
+5.4 Settlement with Stale Data
+------------------------------
+If using stale data:
+  1. Set match.dataQualityFlag = "STALE_PRICES"
+  2. Add notice to all results
+  3. Log which symbols were affected
+  4. Consider notification to participants
+
+6. FORCED SETTLEMENT
+--------------------
+
+6.1 Trigger
+-----------
+Automatic trigger at: settlingAt + 3 hours
+Manual trigger: Operations team via admin console
+
+6.2 Forced Settlement Algorithm
+-------------------------------
+Function: forceSettlement(matchId)
+
+Step 1: Log that forced settlement is triggered
+Step 2: For each unique symbol in match:
+  a. Check priceSnapshots for target date
+  b. If not found, use getBestCachedPrice()
+  c. If still not found, mark position as EXCLUDED
+Step 3: Calculate returns for all positions with prices
+Step 4: Handle EXCLUDED positions:
+  - Weight redistributed proportionally
+  - OR use 0% return (configurable)
+Step 5: Complete settlement with available data
+Step 6: Set appropriate quality flags
+Step 7: Alert operations team
+
+6.3 Excluded Position Handling
+------------------------------
+If a position cannot be priced:
+
+Option A (Default): Redistribute Weight
+  - Remove position from calculation
+  - Scale other positions proportionally
+  - Example: 5 positions, 1 excluded
+    - Original: 20%, 30%, 25%, 15%, 10%
+    - Excluded: 20% (no price for this symbol)
+    - Redistributed: 30/80=37.5%, 25/80=31.25%, etc.
+
+Option B: Zero Return
+  - Keep position in calculation
+  - Assign 0% return
+  - User neither gains nor loses on that position
+
+Configuration: systemConfig.excludedPositionStrategy = "redistribute" | "zero"
+
+7. STALENESS LIMITS
+-------------------
+
+7.1 Acceptable Staleness by Scenario
+------------------------------------
+Scenario                 | Max Staleness | Action if Exceeded
+-------------------------|---------------|---------------------
+Normal settlement        | 4 hours       | Retry
+Post-retry settlement    | 24 hours      | Use with STALE flag
+Forced settlement        | 5 trading days| Exclude position
+Match start (lock)       | 24 hours      | Delay match start
+
+7.2 Staleness Communication
+---------------------------
+To Users:
+  - If staleness > 24 hours, show banner on results
+  - "Results calculated using delayed price data"
+
+To Operations:
+  - Alert if any match settles with stale data
+  - Weekly report of data quality issues
+
+8. CIRCUIT BREAKER
+------------------
+
+8.1 Configuration
+-----------------
+Failure Threshold: 5 failures in 60 seconds
+Open Duration: 30 seconds
+Half-Open: Allow 1 request through
+
+8.2 States
+----------
+CLOSED: Normal operation, track failures
+OPEN: Reject immediately, return cached/backup
+HALF_OPEN: Test with single request
+
+8.3 Per-Provider Breaker
+------------------------
+Maintain separate circuit breaker per provider:
+  - polygon_circuit_breaker
+  - alphavantage_circuit_breaker
+
+If both open, proceed to cache fallback
+
+9. MONITORING & ALERTING
+------------------------
+
+9.1 Metrics to Track
+--------------------
+- API response time (p50, p95, p99)
+- API success rate (%)
+- Retry count per settlement
+- Fallback trigger count
+- Stale data usage count
+- Forced settlement count
+
+9.2 Alert Thresholds
+--------------------
+CRITICAL (PagerDuty):
+  - API success rate < 50% for 5 minutes
+  - Forced settlement triggered
+  - Both APIs circuit breaker open
+
+HIGH (Slack):
+  - API success rate < 90% for 15 minutes
+  - Backup API used
+  - Settlement delayed > 1 hour
+
+MEDIUM (Email digest):
+  - Stale data used in settlement
+  - Retry count > 3 for any settlement
+
+9.3 Dashboard Panels
+--------------------
+- Real-time API health status
+- Settlement queue depth
+- Data quality distribution
+- Historical failure trends
+
+10. RECOVERY PROCEDURES
+-----------------------
+
+10.1 Post-Outage Data Backfill
+------------------------------
+After extended outage:
+  1. Identify affected date range
+  2. Query API for missing dates
+  3. Backfill priceSnapshots
+  4. Review any settlements that used stale data
+  5. Consider recalculation if significant discrepancy
+
+10.2 Recalculation Policy
+-------------------------
+Recalculate settlement if:
+  - Price discrepancy > 5% for any symbol
+  - Affects ranking changes
+  - Within 24 hours of original settlement
+
+Do NOT recalculate if:
+  - Minor discrepancy (<1%)
+  - Would only affect returns, not rankings
+  - > 24 hours since settlement
+
+10.3 Communication Template
+---------------------------
+If recalculation needed:
+
+Subject: "[WSFL] Match Results Updated - {Match Name}"
+Body:
+  "Due to a data issue, the results for {Match Name} have been
+   recalculated with corrected price data. Your updated rank is
+   #{new_rank} (previously #{old_rank}). We apologize for any
+   inconvenience."
+
+================================================================================
+END OF FALLBACK PLAN FOR PRICE API FAILURES
+================================================================================

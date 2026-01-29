@@ -1,0 +1,322 @@
+{
+  "_documentation": "Mock data for Wall Street Fantasy League MVP frontend development",
+
+  "currentUser": {
+    "uid": "user_abc123",
+    "email": "john.trader@example.com",
+    "displayName": "JohnTrader",
+    "photoURL": "https://api.dicebear.com/7.x/avataaars/svg?seed=JohnTrader",
+    "emailVerified": true,
+    "createdAt": "2024-01-15T09:30:00Z",
+    "lastLoginAt": "2024-06-20T14:22:15Z",
+    "status": "ACTIVE",
+    "stats": {
+      "matchesPlayed": 8,
+      "matchesWon": 2,
+      "totalReturns": 32.45,
+      "bestReturn": 12.34,
+      "averageRank": 3.5
+    },
+    "preferences": {
+      "timezone": "America/New_York",
+      "notifications": true
+    }
+  },
+
+  "matchLobby": {
+    "publicMatches": [
+      {
+        "matchId": "match_001",
+        "name": "Tech Titans Weekly",
+        "description": "Weekly competition for tech enthusiasts",
+        "creatorId": "user_xyz789",
+        "creatorDisplayName": "TechGuru",
+        "type": "PUBLIC",
+        "status": "OPEN",
+        "durationDays": 7,
+        "startDate": "2024-06-24T20:00:00Z",
+        "endDate": "2024-07-01T20:00:00Z",
+        "entryDeadline": "2024-06-24T20:00:00Z",
+        "playerCount": 15,
+        "maxPlayers": 100,
+        "minPlayers": 2
+      },
+      {
+        "matchId": "match_002",
+        "name": "Daily Sprint",
+        "description": "24-hour quick match",
+        "creatorId": "user_def456",
+        "creatorDisplayName": "SpeedTrader",
+        "type": "PUBLIC",
+        "status": "OPEN",
+        "durationDays": 1,
+        "startDate": "2024-06-21T20:00:00Z",
+        "endDate": "2024-06-22T20:00:00Z",
+        "entryDeadline": "2024-06-21T20:00:00Z",
+        "playerCount": 8,
+        "maxPlayers": 50,
+        "minPlayers": 2
+      },
+      {
+        "matchId": "match_003",
+        "name": "Monthly Marathon",
+        "description": "30-day long-term strategy match",
+        "creatorId": "user_ghi789",
+        "creatorDisplayName": "PatientInvestor",
+        "type": "PUBLIC",
+        "status": "OPEN",
+        "durationDays": 30,
+        "startDate": "2024-07-01T20:00:00Z",
+        "endDate": "2024-07-31T20:00:00Z",
+        "entryDeadline": "2024-07-01T20:00:00Z",
+        "playerCount": 42,
+        "maxPlayers": 100,
+        "minPlayers": 2
+      }
+    ]
+  },
+
+  "userActiveMatches": [
+    {
+      "matchId": "match_active_001",
+      "name": "Summer Showdown",
+      "status": "LIVE",
+      "durationDays": 7,
+      "startDate": "2024-06-17T20:00:00Z",
+      "endDate": "2024-06-24T20:00:00Z",
+      "playerCount": 23,
+      "userRank": 5,
+      "userReturn": 3.45
+    },
+    {
+      "matchId": "match_active_002",
+      "name": "Quick Picks",
+      "status": "OPEN",
+      "durationDays": 3,
+      "startDate": "2024-06-25T20:00:00Z",
+      "endDate": "2024-06-28T20:00:00Z",
+      "playerCount": 12,
+      "portfolioSubmitted": true
+    }
+  ],
+
+  "userRecentResults": [
+    {
+      "matchId": "match_past_001",
+      "matchName": "June Jumpstart",
+      "rank": 2,
+      "totalParticipants": 18,
+      "portfolioReturnPercent": 8.72,
+      "finishedAt": "2024-06-14T20:05:00Z"
+    },
+    {
+      "matchId": "match_past_002",
+      "matchName": "Weekend Warriors",
+      "rank": 1,
+      "totalParticipants": 10,
+      "portfolioReturnPercent": 12.34,
+      "finishedAt": "2024-06-10T20:03:00Z"
+    },
+    {
+      "matchId": "match_past_003",
+      "matchName": "May Madness",
+      "rank": 7,
+      "totalParticipants": 35,
+      "portfolioReturnPercent": -2.15,
+      "finishedAt": "2024-05-31T20:08:00Z"
+    }
+  ],
+
+  "matchDetail": {
+    "match": {
+      "matchId": "match_001",
+      "name": "Tech Titans Weekly",
+      "description": "Weekly competition for tech stock enthusiasts. Build your best 5-stock portfolio!",
+      "creatorId": "user_xyz789",
+      "creatorDisplayName": "TechGuru",
+      "type": "PUBLIC",
+      "matchCode": null,
+      "status": "OPEN",
+      "durationDays": 7,
+      "startDate": "2024-06-24T20:00:00Z",
+      "endDate": "2024-07-01T20:00:00Z",
+      "entryDeadline": "2024-06-24T20:00:00Z",
+      "playerCount": 15,
+      "maxPlayers": 100,
+      "minPlayers": 2,
+      "createdAt": "2024-06-15T10:00:00Z",
+      "publishedAt": "2024-06-15T10:05:00Z",
+      "dataQualityFlag": "OK"
+    },
+    "participants": [
+      { "userId": "user_abc123", "userDisplayName": "JohnTrader", "hasSubmittedPortfolio": true },
+      { "userId": "user_xyz789", "userDisplayName": "TechGuru", "hasSubmittedPortfolio": true },
+      { "userId": "user_def456", "userDisplayName": "SpeedTrader", "hasSubmittedPortfolio": false },
+      { "userId": "user_ghi789", "userDisplayName": "PatientInvestor", "hasSubmittedPortfolio": true },
+      { "userId": "user_jkl012", "userDisplayName": "BullishBrian", "hasSubmittedPortfolio": true }
+    ],
+    "userPortfolio": {
+      "portfolioId": "portfolio_001",
+      "matchId": "match_001",
+      "userId": "user_abc123",
+      "positions": [
+        { "symbol": "NVDA", "exchange": "NASDAQ", "companyName": "NVIDIA Corporation", "allocationCents": 300000, "allocationPercent": 30 },
+        { "symbol": "AAPL", "exchange": "NASDAQ", "companyName": "Apple Inc.", "allocationCents": 200000, "allocationPercent": 20 },
+        { "symbol": "MSFT", "exchange": "NASDAQ", "companyName": "Microsoft Corporation", "allocationCents": 200000, "allocationPercent": 20 },
+        { "symbol": "GOOGL", "exchange": "NASDAQ", "companyName": "Alphabet Inc.", "allocationCents": 150000, "allocationPercent": 15 },
+        { "symbol": "AMZN", "exchange": "NASDAQ", "companyName": "Amazon.com Inc.", "allocationCents": 150000, "allocationPercent": 15 }
+      ],
+      "totalAllocationCents": 1000000,
+      "isLocked": false,
+      "submittedAt": "2024-06-20T14:30:00Z"
+    }
+  },
+
+  "liveMatchDetail": {
+    "match": {
+      "matchId": "match_active_001",
+      "name": "Summer Showdown",
+      "status": "LIVE",
+      "durationDays": 7,
+      "startDate": "2024-06-17T20:00:00Z",
+      "endDate": "2024-06-24T20:00:00Z",
+      "playerCount": 23,
+      "liveAt": "2024-06-17T20:00:05Z",
+      "dataQualityFlag": "OK"
+    },
+    "leaderboardPreview": [
+      { "rank": 1, "userDisplayName": "AlphaTrader", "portfolioReturnPercent": 8.45, "topHolding": "NVDA" },
+      { "rank": 2, "userDisplayName": "BetaBets", "portfolioReturnPercent": 7.23, "topHolding": "AMD" },
+      { "rank": 3, "userDisplayName": "GammaGains", "portfolioReturnPercent": 6.89, "topHolding": "TSLA" },
+      { "rank": 4, "userDisplayName": "DeltaDeal", "portfolioReturnPercent": 5.12, "topHolding": "META" },
+      { "rank": 5, "userDisplayName": "JohnTrader", "portfolioReturnPercent": 3.45, "topHolding": "AAPL" }
+    ],
+    "userRank": {
+      "rank": 5,
+      "portfolioReturnPercent": 3.45,
+      "endValueCents": 1034500,
+      "topHolding": "AAPL",
+      "topHoldingReturn": 5.23
+    }
+  },
+
+  "finishedMatchResult": {
+    "match": {
+      "matchId": "match_past_001",
+      "name": "June Jumpstart",
+      "status": "FINISHED",
+      "durationDays": 7,
+      "startDate": "2024-06-07T20:00:00Z",
+      "endDate": "2024-06-14T20:00:00Z",
+      "finishedAt": "2024-06-14T20:05:00Z",
+      "playerCount": 18
+    },
+    "userResult": {
+      "resultId": "result_001",
+      "matchId": "match_past_001",
+      "userId": "user_abc123",
+      "userDisplayName": "JohnTrader",
+      "positionResults": [
+        { "symbol": "NVDA", "allocationPercent": 30, "startPriceCents": 12500, "endPriceCents": 13750, "returnPercent": 10.0, "weightedContribution": 3.0 },
+        { "symbol": "AAPL", "allocationPercent": 20, "startPriceCents": 19000, "endPriceCents": 19950, "returnPercent": 5.0, "weightedContribution": 1.0 },
+        { "symbol": "MSFT", "allocationPercent": 20, "startPriceCents": 42000, "endPriceCents": 44100, "returnPercent": 5.0, "weightedContribution": 1.0 },
+        { "symbol": "GOOGL", "allocationPercent": 15, "startPriceCents": 17500, "endPriceCents": 18375, "returnPercent": 5.0, "weightedContribution": 0.75 },
+        { "symbol": "AMZN", "allocationPercent": 15, "startPriceCents": 18500, "endPriceCents": 17760, "returnPercent": -4.0, "weightedContribution": -0.6 }
+      ],
+      "portfolioReturnPercent": 5.15,
+      "startValueCents": 1000000,
+      "endValueCents": 1051500,
+      "rank": 2,
+      "totalParticipants": 18,
+      "submittedAt": "2024-06-06T18:30:00Z",
+      "calculatedAt": "2024-06-14T20:05:30Z"
+    },
+    "leaderboard": [
+      { "rank": 1, "userId": "user_winner", "userDisplayName": "TopTrader", "portfolioReturnPercent": 8.72, "endValueCents": 1087200, "topHolding": "AMD", "topHoldingReturn": 15.3 },
+      { "rank": 2, "userId": "user_abc123", "userDisplayName": "JohnTrader", "portfolioReturnPercent": 5.15, "endValueCents": 1051500, "topHolding": "NVDA", "topHoldingReturn": 10.0 },
+      { "rank": 3, "userId": "user_third", "userDisplayName": "SteadySteve", "portfolioReturnPercent": 4.89, "endValueCents": 1048900, "topHolding": "MSFT", "topHoldingReturn": 8.2 }
+    ]
+  },
+
+  "symbolSearchResults": {
+    "query": "APP",
+    "results": [
+      { "symbol": "AAPL", "exchange": "NASDAQ", "companyName": "Apple Inc.", "sector": "Technology", "isEligible": true },
+      { "symbol": "APP", "exchange": "NASDAQ", "companyName": "AppLovin Corporation", "sector": "Technology", "isEligible": true },
+      { "symbol": "APPF", "exchange": "NASDAQ", "companyName": "AppFolio Inc.", "sector": "Technology", "isEligible": true },
+      { "symbol": "APPN", "exchange": "NASDAQ", "companyName": "Appian Corporation", "sector": "Technology", "isEligible": true }
+    ]
+  },
+
+  "popularSymbols": [
+    { "symbol": "AAPL", "exchange": "NASDAQ", "companyName": "Apple Inc." },
+    { "symbol": "MSFT", "exchange": "NASDAQ", "companyName": "Microsoft Corporation" },
+    { "symbol": "GOOGL", "exchange": "NASDAQ", "companyName": "Alphabet Inc." },
+    { "symbol": "AMZN", "exchange": "NASDAQ", "companyName": "Amazon.com Inc." },
+    { "symbol": "NVDA", "exchange": "NASDAQ", "companyName": "NVIDIA Corporation" },
+    { "symbol": "META", "exchange": "NASDAQ", "companyName": "Meta Platforms Inc." },
+    { "symbol": "TSLA", "exchange": "NASDAQ", "companyName": "Tesla Inc." },
+    { "symbol": "AMD", "exchange": "NASDAQ", "companyName": "Advanced Micro Devices Inc." },
+    { "symbol": "NFLX", "exchange": "NASDAQ", "companyName": "Netflix Inc." },
+    { "symbol": "CRM", "exchange": "NYSE", "companyName": "Salesforce Inc." }
+  ],
+
+  "emptyStates": {
+    "noMatches": {
+      "title": "No Matches Yet",
+      "description": "You haven't joined any matches yet. Browse the lobby to find competitions!",
+      "actionLabel": "Browse Matches"
+    },
+    "noResults": {
+      "title": "No Results",
+      "description": "You don't have any completed matches yet. Join a match to start competing!",
+      "actionLabel": "Join a Match"
+    },
+    "noSearchResults": {
+      "title": "No Symbols Found",
+      "description": "We couldn't find any stocks matching your search. Try a different query.",
+      "actionLabel": null
+    },
+    "matchEmpty": {
+      "title": "No Participants Yet",
+      "description": "Be the first to join this match!",
+      "actionLabel": "Build Portfolio"
+    }
+  },
+
+  "errorStates": {
+    "networkError": {
+      "title": "Connection Error",
+      "message": "We couldn't connect to the server. Please check your internet connection and try again.",
+      "actionLabel": "Retry"
+    },
+    "sessionExpired": {
+      "title": "Session Expired",
+      "message": "Your session has expired. Please sign in again to continue.",
+      "actionLabel": "Sign In"
+    },
+    "invalidCode": {
+      "title": "Invalid Code",
+      "message": "The match code you entered is not valid. Please check and try again.",
+      "actionLabel": "Try Again"
+    },
+    "deadlinePassed": {
+      "title": "Deadline Passed",
+      "message": "The entry deadline for this match has passed. You can no longer join or modify your portfolio.",
+      "actionLabel": "Browse Other Matches"
+    }
+  },
+
+  "marketHolidays2024": [
+    "2024-01-01",
+    "2024-01-15",
+    "2024-02-19",
+    "2024-03-29",
+    "2024-05-27",
+    "2024-06-19",
+    "2024-07-04",
+    "2024-09-02",
+    "2024-11-28",
+    "2024-12-25"
+  ]
+}

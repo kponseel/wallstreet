@@ -1,0 +1,196 @@
+================================================================================
+BATCH 2 — DATA MODEL & FIREBASE SCHEMA
+Wall Street Fantasy League MVP — Firestore Index Plan
+================================================================================
+
+1. INDEX STRATEGY OVERVIEW
+--------------------------
+
+Firestore automatically creates single-field indexes. Composite indexes must be
+explicitly defined for queries that filter/order on multiple fields.
+
+Index Types:
+- ASCENDING (ASC): Default sort order
+- DESCENDING (DESC): For reverse chronological queries
+- ARRAY_CONTAINS: For array membership queries
+
+2. REQUIRED COMPOSITE INDEXES
+-----------------------------
+
+ID  | Collection        | Fields                              | Purpose
+----|-------------------|-------------------------------------|----------------------------------
+I1  | matches           | status ASC, startDate ASC           | Lobby: upcoming public matches
+I2  | matches           | status ASC, type ASC, startDate ASC | Lobby: filter by type
+I3  | matches           | creatorId ASC, createdAt DESC       | User's created matches
+I4  | portfolios        | matchId ASC, submittedAt ASC        | Match participants list
+I5  | portfolios        | userId ASC, createdAt DESC          | User's portfolio history
+I6  | results           | matchId ASC, rank ASC               | Match leaderboard
+I7  | results           | userId ASC, calculatedAt DESC       | User's result history
+I8  | results           | matchId ASC, portfolioReturnPercent DESC | Leaderboard by return
+I9  | leaderboard       | matchId ASC, rank ASC               | Paginated leaderboard
+I10 | matchParticipants | matchId ASC, joinedAt ASC           | Match participant list
+I11 | matchParticipants | userId ASC, joinedAt DESC           | User's active matches
+I12 | priceSnapshots    | symbol ASC, date ASC                | Price lookup by symbol+date
+I13 | priceSnapshots    | date ASC, fetchedAt DESC            | Daily price batch queries
+I14 | symbolCache       | isEligible ASC, symbol ASC          | Eligible symbol search
+I15 | auditLog          | actorId ASC, timestamp DESC         | User audit trail
+I16 | auditLog          | targetId ASC, timestamp DESC        | Entity audit trail
+
+3. INDEX DEFINITIONS (firestore.indexes.json format)
+----------------------------------------------------
+
+Collection: matches
+-------------------
+Index I1:
+  Fields: [status ASC, startDate ASC]
+  Query: WHERE status == "OPEN" ORDER BY startDate ASC
+
+Index I2:
+  Fields: [status ASC, type ASC, startDate ASC]
+  Query: WHERE status == "OPEN" AND type == "PUBLIC" ORDER BY startDate ASC
+
+Index I3:
+  Fields: [creatorId ASC, createdAt DESC]
+  Query: WHERE creatorId == {uid} ORDER BY createdAt DESC
+
+Collection: portfolios
+----------------------
+Index I4:
+  Fields: [matchId ASC, submittedAt ASC]
+  Query: WHERE matchId == {id} ORDER BY submittedAt ASC
+
+Index I5:
+  Fields: [userId ASC, createdAt DESC]
+  Query: WHERE userId == {uid} ORDER BY createdAt DESC
+
+Collection: results
+-------------------
+Index I6:
+  Fields: [matchId ASC, rank ASC]
+  Query: WHERE matchId == {id} ORDER BY rank ASC LIMIT 100
+
+Index I7:
+  Fields: [userId ASC, calculatedAt DESC]
+  Query: WHERE userId == {uid} ORDER BY calculatedAt DESC
+
+Index I8:
+  Fields: [matchId ASC, portfolioReturnPercent DESC]
+  Query: WHERE matchId == {id} ORDER BY portfolioReturnPercent DESC
+
+Collection: leaderboard
+-----------------------
+Index I9:
+  Fields: [matchId ASC, rank ASC]
+  Query: WHERE matchId == {id} ORDER BY rank ASC LIMIT 20
+
+Collection: matchParticipants
+-----------------------------
+Index I10:
+  Fields: [matchId ASC, joinedAt ASC]
+  Query: WHERE matchId == {id} ORDER BY joinedAt ASC
+
+Index I11:
+  Fields: [userId ASC, joinedAt DESC]
+  Query: WHERE userId == {uid} ORDER BY joinedAt DESC
+
+Collection: priceSnapshots
+--------------------------
+Index I12:
+  Fields: [symbol ASC, date ASC]
+  Query: WHERE symbol == {sym} AND date == {date}
+
+Index I13:
+  Fields: [date ASC, fetchedAt DESC]
+  Query: WHERE date == {date} ORDER BY fetchedAt DESC
+
+Collection: symbolCache
+-----------------------
+Index I14:
+  Fields: [isEligible ASC, symbol ASC]
+  Query: WHERE isEligible == true AND symbol >= {prefix} AND symbol < {prefix+1}
+
+Collection: auditLog
+--------------------
+Index I15:
+  Fields: [actorId ASC, timestamp DESC]
+  Query: WHERE actorId == {uid} ORDER BY timestamp DESC
+
+Index I16:
+  Fields: [targetId ASC, timestamp DESC]
+  Query: WHERE targetId == {id} ORDER BY timestamp DESC
+
+4. SINGLE-FIELD INDEX EXEMPTIONS
+--------------------------------
+
+Exempt from automatic indexing (to reduce storage costs):
+
+Collection        | Field              | Reason
+------------------|--------------------|---------------------------------
+users             | preferences        | Map, never queried directly
+portfolios        | positions          | Array of maps, never queried
+results           | positionResults    | Array of maps, never queried
+symbolCache       | sector             | Low cardinality, rarely filtered
+symbolCache       | industry           | Low cardinality, rarely filtered
+auditLog          | details            | Map, never queried directly
+systemConfig      | featureFlags       | Map, never queried directly
+
+5. COLLECTION GROUP INDEXES
+---------------------------
+
+Not required for MVP. All queries are scoped to single collections.
+
+Future consideration: If subcollections are introduced, collection group
+indexes would be needed for cross-document queries.
+
+6. INDEX COST ESTIMATES
+-----------------------
+
+Collection        | Est. Documents (Year 1) | Indexes | Storage Impact
+------------------|-------------------------|---------|----------------
+users             | 10,000                  | 2       | ~5 MB
+matches           | 50,000                  | 3       | ~25 MB
+portfolios        | 200,000                 | 2       | ~100 MB
+priceSnapshots    | 1,000,000               | 2       | ~500 MB
+results           | 200,000                 | 3       | ~100 MB
+leaderboard       | 200,000                 | 1       | ~50 MB
+matchParticipants | 200,000                 | 2       | ~50 MB
+symbolCache       | 10,000                  | 1       | ~5 MB
+auditLog          | 500,000                 | 2       | ~100 MB
+------------------|-------------------------|---------|----------------
+TOTAL             | ~2,370,000              | 18      | ~935 MB
+
+7. QUERY PERFORMANCE TARGETS
+----------------------------
+
+Query Type                      | Target Latency | Max Reads
+--------------------------------|----------------|------------
+Match lobby list (20 items)     | < 100ms        | 20
+Match details                   | < 50ms         | 1
+Match leaderboard (20 items)    | < 100ms        | 20
+User's matches (10 items)       | < 100ms        | 10
+Symbol search (10 results)      | < 150ms        | 10
+Portfolio submission            | < 200ms        | 1 write
+Price snapshot lookup           | < 50ms         | 1
+
+8. INDEX MAINTENANCE NOTES
+--------------------------
+
+8.1 Adding New Indexes
+    - Indexes build asynchronously after deployment
+    - Large collections may take hours to index
+    - Queries will fail until index is ready
+    - Deploy index changes before code changes
+
+8.2 Removing Indexes
+    - Unused indexes should be removed to save costs
+    - Monitor query patterns before removal
+    - Removal is immediate (no build time)
+
+8.3 Index Limits
+    - Max 200 composite indexes per database
+    - Max 500 single-field index exemptions
+    - Current usage: 16 composite indexes (8% of limit)
+
+================================================================================
+END OF FIRESTORE INDEX PLAN
+================================================================================

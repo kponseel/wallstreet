@@ -1,0 +1,321 @@
+================================================================================
+BATCH 6 — MARKET DATA INTEGRATION
+Wall Street Fantasy League MVP — Price Normalization & Caching Policy
+================================================================================
+
+1. PRICE NORMALIZATION OVERVIEW
+-------------------------------
+
+Goal: Ensure consistent, accurate price data for fair settlement
+
+Key Principles:
+  - All prices are EOD (End of Day) closing prices
+  - All prices are split-adjusted
+  - All prices are in USD
+  - All prices stored as integers (cents)
+  - Reference time: 4:00 PM Eastern Time (market close)
+
+2. PRICE SOURCE HIERARCHY
+-------------------------
+
+Primary Source: Polygon.io
+  - API: /v2/aggs/ticker/{ticker}/prev
+  - Parameter: adjusted=true
+  - Expected latency: < 1 second
+
+Fallback Source: Alpha Vantage
+  - API: GLOBAL_QUOTE
+  - Parameter: N/A (always adjusted)
+  - Use only if primary fails
+
+Last Resort: Previous day cache
+  - Use cached price from prior day
+  - Mark with dataQuality: "STALE"
+
+3. EOD PRICE DEFINITION
+-----------------------
+
+3.1 Normal Trading Day
+----------------------
+Definition: Regular market hours 9:30 AM - 4:00 PM ET
+EOD Price: Official closing price at 4:00 PM ET
+Source Timestamp: Data provider's "close" field
+
+3.2 Early Close Day
+-------------------
+Definition: Pre-holiday shortened session (e.g., 1:00 PM close)
+EOD Price: Official closing price at early close time
+Handling: Same as normal - use provider's close price
+
+3.3 Extended Hours
+------------------
+Note: Extended hours prices NOT used
+We use regular session close only
+
+4. TIMEZONE HANDLING
+--------------------
+
+4.1 Reference Timezone
+----------------------
+All operations use: America/New_York (Eastern Time)
+Abbreviations: ET (Eastern Time), EST/EDT as appropriate
+
+4.2 Timestamp Conversion
+------------------------
+Algorithm: normalizeTimestamp(apiTimestamp)
+
+Step 1: Parse API timestamp (usually Unix ms or ISO)
+Step 2: Convert to ET timezone
+Step 3: Extract date portion (YYYY-MM-DD)
+Step 4: Verify date matches expected trading day
+Step 5: Store both date string and full timestamp
+
+Example:
+  API returns: 1718920800000 (Unix ms)
+  Converted: 2024-06-20T20:00:00Z (UTC)
+  In ET: 2024-06-20T16:00:00-04:00
+  Stored date: "2024-06-20"
+
+4.3 Match Timezone
+------------------
+All match times are in ET:
+  - startDate: Market close on that day (4:00 PM ET)
+  - endDate: Market close on that day (4:00 PM ET)
+  - entryDeadline: Same as startDate
+
+4.4 User Timezone Display
+-------------------------
+Show times in user's local timezone:
+  - Read user.preferences.timezone
+  - Convert ET times for display
+  - Always show ET time in parentheses for clarity
+
+Example:
+  "Starts Mon 6/24 at 1:00 PM (4:00 PM ET)"
+
+5. PRICE STORAGE FORMAT
+-----------------------
+
+5.1 Integer Cents
+-----------------
+Storage: Prices stored as integers in cents
+Rationale: Avoid floating point precision issues
+Conversion: price * 100, rounded to nearest cent
+
+Examples:
+  $185.92 → 18592
+  $0.50 → 50
+  $1,234.56 → 123456
+
+5.2 Float for Display
+---------------------
+Additional field: closePriceFloat
+Purpose: Pre-computed float for UI
+Value: Same as closePrice / 100
+Avoids repeated conversion on read
+
+5.3 Precision Rules
+-------------------
+- API prices: Accept up to 4 decimal places
+- Storage: Round to 2 decimal places (cents)
+- Rounding: Banker's rounding (round half to even)
+
+Example:
+  API: $185.925 → rounds to $185.92 → stored as 18592
+  API: $185.935 → rounds to $185.94 → stored as 18594
+
+6. SPLIT ADJUSTMENT
+-------------------
+
+6.1 Automatic Adjustment
+------------------------
+Polygon API provides split-adjusted prices by default
+Parameter: adjusted=true (always use this)
+
+How it works:
+  - Historical prices retroactively adjusted
+  - If stock split 2:1, old $200 becomes $100
+  - Consistent comparison across time
+
+6.2 No Manual Adjustment Needed
+-------------------------------
+Since provider handles splits:
+  - No special handling required
+  - returnPercent calculation works as-is
+  - No need to detect/track splits
+
+6.3 Verification
+----------------
+During settlement:
+  - If price change >50%, flag for review
+  - Check news for corporate actions
+  - Likely split or data error
+
+7. CACHING POLICY
+-----------------
+
+7.1 Price Snapshot Cache
+------------------------
+Collection: priceSnapshots
+Key: {date}_{symbol}_{exchange}
+TTL: Permanent (immutable after write)
+
+Write Policy:
+  - Write once per symbol per date
+  - Never update existing snapshot
+  - New date = new document
+
+Read Policy:
+  - Read from cache first
+  - If cache miss, fetch from API
+  - Write to cache after fetch
+
+7.2 Cache Timing
+----------------
+When to cache:
+  - Match start: Cache start prices
+  - Match end: Cache end prices
+  - Proactive: Cache during daily refresh
+
+When data is available:
+  - EOD data: ~5:00 PM ET (15-30 min after close)
+  - Some providers: Later (~8 PM ET)
+  - Settlement buffer: Schedule for 8:00 PM ET
+
+7.3 Cache Freshness
+-------------------
+Freshness Check:
+  - fetchedAt timestamp stored
+  - Compare fetchedAt to market close
+  - If gap > 4 hours, consider stale
+
+Staleness Levels:
+  - LIVE: fetchedAt within 4 hours of close
+  - DELAYED: fetchedAt 4-24 hours after close
+  - STALE: fetchedAt > 24 hours after close
+
+8. DATA QUALITY FLAGS
+---------------------
+
+8.1 Flag Definitions
+--------------------
+
+LIVE
+----
+Definition: Fresh data from primary source
+Set when: fetchedAt within 4 hours of market close
+Action: Normal processing
+
+DELAYED
+-------
+Definition: Data received later than expected
+Set when: fetchedAt 4-24 hours after close
+Action: Normal processing, log for monitoring
+
+STALE
+-----
+Definition: Using old data due to API failure
+Set when: fetchedAt > 24 hours OR using previous day
+Action: Flag match result, notify if significant
+
+ESTIMATED
+---------
+Definition: Price interpolated or from backup source
+Set when: Primary source failed, using fallback
+Action: Flag match result, review accuracy
+
+8.2 Propagation to Results
+--------------------------
+If any price used in settlement has non-LIVE flag:
+  - Add flag to result.dataQualityFlags array
+  - Add flag to match.dataQualityFlag
+  - Consider notification to participants
+
+9. DIVIDEND HANDLING
+--------------------
+
+9.1 MVP Approach
+----------------
+Dividends are NOT included in return calculations
+Rationale:
+  - Simplifies settlement
+  - Consistent with pure price movement
+  - Avoids ex-dividend date complexity
+
+9.2 Price Impact
+----------------
+On ex-dividend date:
+  - Stock price typically drops by dividend amount
+  - This appears as negative return in our system
+  - Accepted behavior for MVP
+
+9.3 Future Consideration
+------------------------
+Post-MVP enhancement:
+  - Track dividend data
+  - Calculate total return (price + dividends)
+  - Adjust for dividend-heavy stocks
+
+10. MARKET HOLIDAY HANDLING
+---------------------------
+
+10.1 Holiday Calendar
+---------------------
+Source: Manually maintained in systemConfig
+Updated: Annually by admin
+
+US Market Holidays (2024):
+  - 2024-01-01 (New Year's Day)
+  - 2024-01-15 (MLK Day)
+  - 2024-02-19 (Presidents Day)
+  - 2024-03-29 (Good Friday)
+  - 2024-05-27 (Memorial Day)
+  - 2024-06-19 (Juneteenth)
+  - 2024-07-04 (Independence Day)
+  - 2024-09-02 (Labor Day)
+  - 2024-11-28 (Thanksgiving)
+  - 2024-12-25 (Christmas)
+
+10.2 Holiday Detection
+----------------------
+Function: isMarketHoliday(date)
+  - Check date against holiday list
+  - Check if weekend (Saturday/Sunday)
+  - Return true if non-trading day
+
+10.3 Match Date Validation
+--------------------------
+Rule: Match cannot start or end on holiday/weekend
+Validation:
+  - Reject match creation with invalid dates
+  - Suggest next valid trading day
+  - Show calendar with blocked dates in UI
+
+10.4 Holiday Price Handling
+---------------------------
+If match date falls on unexpected closure:
+  - Use last trading day's close price
+  - Log incident
+  - No user notification (handled transparently)
+
+11. SNAPSHOT TTL & RETENTION
+----------------------------
+
+11.1 Retention Policy
+---------------------
+Price snapshots: Retain indefinitely
+Rationale:
+  - Needed for historical match results
+  - Storage cost minimal
+  - No PII concerns
+
+11.2 Cleanup
+------------
+No automatic cleanup for priceSnapshots
+Future consideration:
+  - Archive old data to cold storage
+  - Aggregate to weekly/monthly for old periods
+
+================================================================================
+END OF PRICE NORMALIZATION & CACHING POLICY
+================================================================================

@@ -1,0 +1,215 @@
+================================================================================
+WALL STREET FANTASY LEAGUE MVP
+Cross-Batch Consistency Check
+================================================================================
+
+This document verifies alignment across all 7 batches to ensure no conflicts
+or gaps in the specification.
+
+================================================================================
+1. CROSS-BATCH DEPENDENCY VERIFICATION
+================================================================================
+
+Dependency 1: Game Rules → Backend Settlement
+---------------------------------------------
+Source: batch1_game_rules.txt (Section 4: Scoring System)
+Consumer: batch4_settlement.txt (Section 1: Settlement Algorithm)
+Verification:
+  ✓ Return formula matches: ((End - Start) / Start) × 100
+  ✓ Weighted average calculation consistent
+  ✓ Tie-breaker order matches: return → submission time → username
+Status: ALIGNED
+
+Dependency 2: Firestore Schema → Security Rules
+-----------------------------------------------
+Source: batch2_firestore_schema.json (all collections)
+Consumer: batch3_security_rules.txt (Section 3-12)
+Verification:
+  ✓ All 10 collections in schema have corresponding security rules
+  ✓ Field-level rules reference correct field names
+  ✓ Role-based access aligns with schema owner fields
+Status: ALIGNED
+
+Dependency 3: Match Lifecycle → Cloud Functions
+-----------------------------------------------
+Source: batch1_lifecycle.txt (State Transitions)
+Consumer: batch4_functions.txt (FUNC-SETTLE-001, FUNC-SETTLE-002)
+Verification:
+  ✓ States match: DRAFT, OPEN, LIVE, SETTLING, FINISHED, CANCELLED
+  ✓ Triggers align: Cloud Scheduler for start/end
+  ✓ Transition rules implemented in startMatch and settleMatch
+Status: ALIGNED
+
+Dependency 4: Portfolio Validation → Frontend Components
+--------------------------------------------------------
+Source: batch1_game_rules.txt (Section 3: Portfolio Rules)
+Consumer: batch5_components.txt (PortfolioValidation, AllocationSlider)
+Verification:
+  ✓ 5 positions requirement enforced
+  ✓ 5%-50% allocation range matches
+  ✓ $10,000 total (1,000,000 cents) matches
+  ✓ Validation feedback shows same rules
+Status: ALIGNED
+
+Dependency 5: Price API → Settlement Logic
+------------------------------------------
+Source: batch6_data_spec.txt (Polygon.io endpoints)
+Consumer: batch4_settlement.txt (fetchEndPrices function)
+Verification:
+  ✓ API endpoint format matches expected calls
+  ✓ Response parsing logic handles Polygon format
+  ✓ Cents conversion (×100) consistent
+  ✓ Split adjustment flag (adjusted=true) used
+Status: ALIGNED
+
+================================================================================
+2. DATA FORMAT CONSISTENCY
+================================================================================
+
+Price Storage:
+  batch2: closePrice as integer (cents)
+  batch4: priceSnapshot uses cents
+  batch6: conversion to cents documented
+  Status: ✓ CONSISTENT
+
+Timestamps:
+  batch2: Firestore Timestamp objects
+  batch4: Server timestamps for all writes
+  batch5: Display converts to user timezone
+  batch6: ET timezone for market operations
+  Status: ✓ CONSISTENT
+
+User IDs:
+  batch2: Firebase Auth UID as document ID
+  batch3: request.auth.uid for security rules
+  batch4: context.auth.uid in Cloud Functions
+  batch5: currentUser.uid in components
+  Status: ✓ CONSISTENT
+
+Match Status Enum:
+  batch1: DRAFT, OPEN, LIVE, SETTLING, FINISHED, CANCELLED
+  batch2: Same enum in schema
+  batch4: Same states in functions
+  batch5: Same states for UI display
+  Status: ✓ CONSISTENT
+
+================================================================================
+3. BUSINESS RULE ALIGNMENT
+================================================================================
+
+Rule: One Portfolio Per User Per Match
+  batch1_game_rules.txt: Section 2.3 - enforced
+  batch2_firestore_schema.json: portfolioId = matchId + userId
+  batch3_security_rules.txt: Security check on create
+  batch3_integrity.txt: CHECK-2.1.1, CHECK-2.1.2
+  batch4_functions.txt: submitPortfolio validates
+  Status: ✓ ALIGNED ACROSS ALL BATCHES
+
+Rule: Email Verification Required
+  batch1_game_rules.txt: Section 5.1 - verified email required
+  batch3_auth_flow.txt: emailVerified check
+  batch3_security_rules.txt: VERIFIED role definition
+  batch4_functions.txt: Verify in createMatch, joinMatch
+  Status: ✓ ALIGNED ACROSS ALL BATCHES
+
+Rule: 5 Position Minimum/Maximum
+  batch1_game_rules.txt: Exactly 5 positions
+  batch2_firestore_schema.json: positions array minItems=5, maxItems=5
+  batch4_functions.txt: submitPortfolio validates length
+  batch5_ux_scenarios.txt: UI enforces 5 slots
+  Status: ✓ ALIGNED ACROSS ALL BATCHES
+
+Rule: Market Holiday Handling
+  batch1_lifecycle.txt: Matches cannot start/end on holidays
+  batch2_firestore_schema.json: systemConfig.marketHolidays
+  batch4_functions.txt: createMatch validates dates
+  batch6_price_norm.txt: Holiday calendar management
+  Status: ✓ ALIGNED ACROSS ALL BATCHES
+
+================================================================================
+4. API CONTRACT ALIGNMENT
+================================================================================
+
+Frontend → Backend Contracts:
+  batch5_components.txt defines props/data contracts
+  batch4_functions.txt defines input/output for each function
+
+  Verified Contracts:
+  ✓ MatchCard receives Match type (matches schema)
+  ✓ LeaderboardEntry matches leaderboard collection schema
+  ✓ PortfolioSummary receives Portfolio type (matches schema)
+  ✓ Result type matches results collection schema
+  ✓ Symbol search returns SymbolCache format
+
+Backend → External API:
+  batch6_data_spec.txt defines Polygon API contracts
+  batch4_functions.txt references these in price fetch
+
+  Verified:
+  ✓ fetchPriceSnapshot uses correct Polygon endpoints
+  ✓ Response parsing matches documented format
+  ✓ Error codes align with retry logic
+
+================================================================================
+5. TEST COVERAGE VERIFICATION
+================================================================================
+
+All Batch 1 rules have corresponding tests in Batch 7:
+  ✓ Game rules → TEST-MATRIX: PORT-*, SETT-*
+  ✓ Lifecycle states → TEST-MATRIX: MATCH-*
+  ✓ Scoring formulas → TEST-MATRIX: SETT-006, SETT-007
+  ✓ Edge cases → EDGE-CASES catalogue
+
+All Batch 2 schemas tested:
+  ✓ users → AUTH-*, SEC-*
+  ✓ matches → MATCH-*
+  ✓ portfolios → PORT-*
+  ✓ priceSnapshots → DATA-*
+  ✓ results → SETT-*, LEAD-*
+  ✓ leaderboard → LEAD-*
+
+All Batch 3 security rules tested:
+  ✓ Auth flows → AUTH-*
+  ✓ Access control → SEC-001 through SEC-012
+  ✓ Integrity checks → SEC-*, SETT-014
+
+================================================================================
+6. IDENTIFIED GAPS (Minor)
+================================================================================
+
+Gap 1: Timezone Display
+  batch5 references user timezone display
+  batch6 defines ET as reference
+  Resolution: batch5_mock_data.json includes timezone preference
+  Status: Documented, minor UI implementation detail
+
+Gap 2: Real-time Leaderboard
+  batch5_screens.txt mentions "Real-time?" for LIVE matches
+  batch4 doesn't explicitly define real-time updates
+  Resolution: Can use Firestore onSnapshot; not critical for MVP
+  Status: Documented as P2 feature (LEAD-009)
+
+Gap 3: Push Notifications
+  batch5_ux_scenarios.txt mentions "Push notification"
+  No dedicated batch for notification infrastructure
+  Resolution: Can use Firebase Cloud Messaging; add as post-MVP
+  Status: Out of scope for MVP, noted in batch7
+
+================================================================================
+7. SUMMARY
+================================================================================
+
+Total Cross-Batch Dependencies Verified: 5 major, 15+ minor
+Alignment Status: 100% of critical dependencies aligned
+Data Format Consistency: 100% verified
+Business Rule Alignment: 100% verified
+Test Coverage: All major features have test cases
+
+Minor Gaps Identified: 3 (all documented, non-blocking for MVP)
+
+CONCLUSION: All batches are internally consistent and cross-referenced.
+The specification is ready for implementation.
+
+================================================================================
+END OF CROSS-BATCH CONSISTENCY CHECK
+================================================================================

@@ -1,0 +1,265 @@
+================================================================================
+BATCH 3 — AUTHENTICATION & SECURITY
+Wall Street Fantasy League MVP — Security Rules Description
+================================================================================
+
+1. SECURITY MODEL OVERVIEW
+--------------------------
+
+Firestore Security Rules enforce access control at the database level.
+All rules follow the principle of least privilege.
+
+Key Concepts:
+- Authentication Required: Most operations require signed-in user
+- Ownership: Users can only modify their own data
+- Immutability: Certain documents become read-only after creation
+- Validation: Data must meet schema requirements
+- Role-Based: Different access for users vs. system
+
+2. ROLE DEFINITIONS
+-------------------
+
+Role        | Description                              | Identifier
+------------|------------------------------------------|------------------
+ANONYMOUS   | Not signed in                            | request.auth == null
+USER        | Signed in, email not verified            | request.auth != null
+VERIFIED    | Signed in, email verified                | request.auth.token.email_verified
+OWNER       | User who owns the resource               | resource.data.userId == request.auth.uid
+CREATOR     | User who created the match               | resource.data.creatorId == request.auth.uid
+SYSTEM      | Cloud Functions with admin SDK           | Bypasses rules
+
+3. COLLECTION: users
+--------------------
+
+Operation | Allowed Roles      | Conditions
+----------|--------------------|-----------------------------------------
+CREATE    | SYSTEM only        | Created via Cloud Function on signup
+READ      | OWNER              | User can read own profile
+READ      | USER               | Can read other users' displayName, photoURL only
+UPDATE    | OWNER              | Can update displayName, photoURL, preferences
+UPDATE    | SYSTEM             | Can update stats, status, lastLoginAt
+DELETE    | SYSTEM only        | Soft delete via Cloud Function
+
+Field-Level Rules:
+- uid: Immutable after creation
+- email: Immutable (change via Auth, not Firestore)
+- emailVerified: SYSTEM only
+- status: SYSTEM only
+- stats: SYSTEM only
+- createdAt: Immutable after creation
+- displayName: OWNER can update, must be 3-50 chars
+- photoURL: OWNER can update, must be valid URL or null
+- preferences: OWNER can update
+
+Validation:
+- displayName: string, length 3-50, alphanumeric + spaces
+- photoURL: string, valid HTTPS URL or null
+- preferences.timezone: string, valid IANA timezone
+- preferences.notifications: boolean
+
+4. COLLECTION: matches
+----------------------
+
+Operation | Allowed Roles      | Conditions
+----------|--------------------|-----------------------------------------
+CREATE    | VERIFIED           | User has verified email
+CREATE    | VERIFIED           | User has < 5 active created matches
+READ      | USER               | All users can read PUBLIC matches
+READ      | PARTICIPANT        | Can read PRIVATE matches they joined
+UPDATE    | CREATOR            | Only in DRAFT status (name, description, dates)
+UPDATE    | SYSTEM             | Can update status, playerCount, timestamps
+DELETE    | CREATOR            | Only in DRAFT status
+
+State-Based Rules:
+- DRAFT: Creator can update name, description, dates, type
+- OPEN: Creator can only cancel (via Cloud Function)
+- LIVE: No user updates allowed
+- SETTLING: No updates allowed
+- FINISHED: Immutable
+- CANCELLED: Immutable
+
+Validation:
+- name: string, length 3-50
+- description: string, length 0-200 or null
+- type: enum ["PUBLIC", "PRIVATE"]
+- durationDays: enum [1, 3, 5, 7, 14, 30]
+- startDate: timestamp, must be future, must be trading day
+- playerCount: integer, 0-100
+
+5. COLLECTION: portfolios
+-------------------------
+
+Operation | Allowed Roles      | Conditions
+----------|--------------------|-----------------------------------------
+CREATE    | VERIFIED           | User verified AND match is OPEN
+CREATE    | VERIFIED           | User has joined match (matchParticipant exists)
+CREATE    | VERIFIED           | No existing portfolio for this user+match
+READ      | OWNER              | User can read own portfolio
+READ      | PARTICIPANT        | Can read others' portfolios after match FINISHED
+READ      | SYSTEM             | Can read all portfolios
+UPDATE    | OWNER              | Only if portfolio.isLocked == false
+UPDATE    | SYSTEM             | Can lock portfolio, update any field
+DELETE    | OWNER              | Only if portfolio.isLocked == false AND match OPEN
+
+Validation:
+- positions: array, exactly 5 items
+- positions[].symbol: string, 1-10 chars, uppercase
+- positions[].exchange: enum ["NYSE", "NASDAQ", "AMEX"]
+- positions[].allocationCents: integer, 50000-500000
+- totalAllocationCents: must equal 1000000
+- Sum of allocationCents: must equal 1000000
+
+Immutability:
+- Once isLocked == true, portfolio cannot be modified by user
+- matchId, userId: immutable after creation
+
+6. COLLECTION: priceSnapshots
+-----------------------------
+
+Operation | Allowed Roles      | Conditions
+----------|--------------------|-----------------------------------------
+CREATE    | SYSTEM only        | Created by price fetch Cloud Functions
+READ      | USER               | All authenticated users can read
+UPDATE    | Never              | Immutable after creation
+DELETE    | Never              | Never deleted
+
+Rationale:
+- Price data is reference data, must be tamper-proof
+- Users need read access for display purposes
+- Only system can write to ensure data integrity
+
+7. COLLECTION: results
+----------------------
+
+Operation | Allowed Roles      | Conditions
+----------|--------------------|-----------------------------------------
+CREATE    | SYSTEM only        | Created during settlement
+READ      | OWNER              | User can read own results
+READ      | PARTICIPANT        | Can read results after match FINISHED
+UPDATE    | SYSTEM only        | Only for corrections
+DELETE    | Never              | Never deleted
+
+Rationale:
+- Results are authoritative records
+- Must be created by trusted system process
+- Public visibility after match ends for transparency
+
+8. COLLECTION: leaderboard
+--------------------------
+
+Operation | Allowed Roles      | Conditions
+----------|--------------------|-----------------------------------------
+CREATE    | SYSTEM only        | Created during settlement
+READ      | USER               | All authenticated users can read
+UPDATE    | SYSTEM only        | Only for corrections
+DELETE    | SYSTEM only        | If match cancelled
+
+Rationale:
+- Leaderboard is denormalized for performance
+- Public data, anyone can view
+- Only system can modify
+
+9. COLLECTION: matchParticipants
+--------------------------------
+
+Operation | Allowed Roles      | Conditions
+----------|--------------------|-----------------------------------------
+CREATE    | VERIFIED           | User verified AND match OPEN
+CREATE    | VERIFIED           | Match not at maxPlayers
+CREATE    | VERIFIED           | User not already in match
+READ      | USER               | All authenticated users can read
+UPDATE    | OWNER              | Can update hasSubmittedPortfolio
+UPDATE    | SYSTEM             | Can update portfolioId
+DELETE    | OWNER              | Only if match OPEN AND user has no locked portfolio
+
+Validation:
+- matchId: must reference existing match
+- userId: must equal request.auth.uid on create
+
+10. COLLECTION: symbolCache
+---------------------------
+
+Operation | Allowed Roles      | Conditions
+----------|--------------------|-----------------------------------------
+CREATE    | SYSTEM only        | Created by symbol sync job
+READ      | USER               | All authenticated users can read
+UPDATE    | SYSTEM only        | Updated by symbol sync job
+DELETE    | SYSTEM only        | When symbol no longer valid
+
+Rationale:
+- Reference data for symbol search
+- Users need read for portfolio builder
+- Only system maintains data
+
+11. COLLECTION: systemConfig
+----------------------------
+
+Operation | Allowed Roles      | Conditions
+----------|--------------------|-----------------------------------------
+CREATE    | Never              | Pre-created by deployment
+READ      | USER               | All authenticated users can read
+UPDATE    | ADMIN only         | Via Firebase Console or Admin SDK
+DELETE    | Never              | Never deleted
+
+Rationale:
+- Configuration is sensitive
+- Users need read for feature flags, holiday calendar
+- Only administrators can modify
+
+12. COLLECTION: auditLog
+------------------------
+
+Operation | Allowed Roles      | Conditions
+----------|--------------------|-----------------------------------------
+CREATE    | SYSTEM only        | Created by Cloud Functions
+READ      | ADMIN only         | Via Firebase Console or Admin SDK
+UPDATE    | Never              | Immutable audit trail
+DELETE    | Never              | Regulatory compliance
+
+Rationale:
+- Audit logs must be tamper-proof
+- Only system can write
+- Users cannot read (contains sensitive info)
+
+13. ACCESS MATRIX SUMMARY
+-------------------------
+
+Collection         | ANON | USER | VERIFIED | OWNER | CREATOR | SYSTEM
+-------------------|------|------|----------|-------|---------|--------
+users              | -    | R*   | R*       | RU    | -       | CRUD
+matches            | R*   | R    | RC       | R     | RUD*    | CRUD
+portfolios         | -    | -    | C        | RUD*  | -       | CRUD
+priceSnapshots     | -    | R    | R        | R     | R       | CR
+results            | -    | -    | -        | R     | -       | CR
+leaderboard        | -    | R    | R        | R     | R       | CRD
+matchParticipants  | -    | R    | CRD*     | RUD   | -       | CRUD
+symbolCache        | -    | R    | R        | R     | R       | CRUD
+systemConfig       | -    | R    | R        | R     | R       | RU
+auditLog           | -    | -    | -        | -     | -       | CR
+
+Legend:
+- C=Create, R=Read, U=Update, D=Delete
+- *=Partial or conditional
+- -=No access
+
+14. CROSS-COLLECTION CONSISTENCY RULES
+--------------------------------------
+
+RULE-1: Portfolio can only be created if matchParticipant exists
+        Check: matchParticipants/{matchId}_{userId} exists
+
+RULE-2: Match playerCount must match matchParticipants count
+        Enforced: Via Cloud Function on join/leave
+
+RULE-3: Portfolio symbols must exist in symbolCache with isEligible=true
+        Check: symbolCache/{symbol}_{exchange}.isEligible == true
+
+RULE-4: User stats must match aggregated results
+        Enforced: Via Cloud Function on settlement
+
+RULE-5: Leaderboard entries must match results
+        Enforced: Created atomically during settlement
+
+================================================================================
+END OF SECURITY RULES DESCRIPTION
+================================================================================

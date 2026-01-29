@@ -1,0 +1,288 @@
+================================================================================
+BATCH 7 — QA, EDGE CASES & MVP POLISH
+Wall Street Fantasy League MVP — Test Matrix
+================================================================================
+
+1. TEST CATEGORIES
+------------------
+
+Category        | Prefix | Coverage Area
+----------------|--------|--------------------------------
+Authentication  | AUTH   | Sign up, sign in, sessions
+Match Management| MATCH  | Create, join, leave, lifecycle
+Portfolio       | PORT   | Build, validate, submit, lock
+Settlement      | SETT   | Pricing, calculation, ranking
+Leaderboard     | LEAD   | Display, pagination, real-time
+Market Data     | DATA   | Symbol search, price fetch
+Security        | SEC    | Rules, access control, integrity
+Performance     | PERF   | Load, latency, cost
+
+2. AUTHENTICATION TESTS
+-----------------------
+
+ID       | Test Case                          | Type     | Priority
+---------|------------------------------------|---------|---------
+AUTH-001 | Email signup with valid data       | Func    | P0
+AUTH-002 | Email signup with invalid email    | Negative| P0
+AUTH-003 | Email signup with weak password    | Negative| P0
+AUTH-004 | Email signup with duplicate email  | Negative| P0
+AUTH-005 | Email verification flow            | Func    | P0
+AUTH-006 | Resend verification email          | Func    | P1
+AUTH-007 | Sign in with correct credentials   | Func    | P0
+AUTH-008 | Sign in with wrong password        | Negative| P0
+AUTH-009 | Sign in with non-existent email    | Negative| P0
+AUTH-010 | Google OAuth signup (new user)     | Func    | P0
+AUTH-011 | Google OAuth signin (existing)     | Func    | P0
+AUTH-012 | Apple Sign-In flow                 | Func    | P0
+AUTH-013 | Password reset request             | Func    | P0
+AUTH-014 | Password reset completion          | Func    | P1
+AUTH-015 | Sign out from single device        | Func    | P0
+AUTH-016 | Session expiry handling            | Func    | P1
+AUTH-017 | Rate limiting on login attempts    | Security| P1
+AUTH-018 | Account deletion flow              | Func    | P1
+
+Expected Results:
+  AUTH-001: User created, verification email sent, redirect to verify screen
+  AUTH-002: Error "Invalid email format" displayed
+  AUTH-003: Error "Password must be 8+ chars with uppercase and number"
+  AUTH-004: Error "Email already in use"
+  AUTH-005: After clicking link, emailVerified = true
+  AUTH-007: Successful login, redirect to Home
+  AUTH-008: Error "Invalid email or password" (generic)
+  AUTH-009: Error "Invalid email or password" (same message for security)
+
+3. MATCH MANAGEMENT TESTS
+-------------------------
+
+ID       | Test Case                          | Type     | Priority
+---------|------------------------------------|---------|---------
+MATCH-001| Create public match (valid)        | Func    | P0
+MATCH-002| Create private match (valid)       | Func    | P0
+MATCH-003| Create match - invalid name        | Negative| P0
+MATCH-004| Create match - past start date     | Negative| P0
+MATCH-005| Create match - weekend start       | Negative| P0
+MATCH-006| Create match - holiday start       | Negative| P0
+MATCH-007| Create match - exceed limit (5)    | Negative| P1
+MATCH-008| Publish draft match                | Func    | P0
+MATCH-009| Cancel draft match                 | Func    | P1
+MATCH-010| Cancel open match (creator)        | Func    | P1
+MATCH-011| Join public match                  | Func    | P0
+MATCH-012| Join private match (valid code)    | Func    | P0
+MATCH-013| Join private match (invalid code)  | Negative| P0
+MATCH-014| Join match - already joined        | Negative| P0
+MATCH-015| Join match - max players reached   | Negative| P1
+MATCH-016| Leave match before lock            | Func    | P1
+MATCH-017| Leave match after lock             | Negative| P1
+MATCH-018| View match lobby                   | Func    | P0
+MATCH-019| View match details                 | Func    | P0
+MATCH-020| Match code uniqueness              | Func    | P1
+
+Expected Results:
+  MATCH-001: Match created with status=DRAFT, matchId returned
+  MATCH-002: Match created with 6-char matchCode generated
+  MATCH-004: Error "Start date must be in the future"
+  MATCH-005: Error "Start date cannot be a weekend"
+  MATCH-007: Error "You can only have 5 active matches"
+  MATCH-011: User added to participants, playerCount incremented
+
+4. PORTFOLIO TESTS
+------------------
+
+ID       | Test Case                          | Type     | Priority
+---------|------------------------------------|---------|---------
+PORT-001 | Build portfolio with 5 positions   | Func    | P0
+PORT-002 | Submit valid portfolio             | Func    | P0
+PORT-003 | Portfolio with <5 positions        | Negative| P0
+PORT-004 | Portfolio with >5 positions        | Negative| P0
+PORT-005 | Position allocation <5%            | Negative| P0
+PORT-006 | Position allocation >50%           | Negative| P0
+PORT-007 | Total allocation <100%             | Negative| P0
+PORT-008 | Total allocation >100%             | Negative| P0
+PORT-009 | Duplicate symbol in portfolio      | Negative| P0
+PORT-010 | Invalid symbol in portfolio        | Negative| P0
+PORT-011 | Ineligible symbol (ETF)            | Negative| P0
+PORT-012 | Edit portfolio before deadline     | Func    | P0
+PORT-013 | Edit portfolio after deadline      | Negative| P0
+PORT-014 | Portfolio locked at match start    | Func    | P0
+PORT-015 | View own portfolio                 | Func    | P0
+PORT-016 | View others' portfolio (pre-finish)| Negative| P0
+PORT-017 | View others' portfolio (finished)  | Func    | P1
+PORT-018 | Symbol search autocomplete         | Func    | P0
+PORT-019 | Symbol search - no results         | Edge    | P1
+PORT-020 | Allocation slider precision        | UI      | P1
+
+Expected Results:
+  PORT-002: Portfolio saved, hasSubmittedPortfolio=true
+  PORT-003: Error "Portfolio must have exactly 5 positions"
+  PORT-005: Slider prevents going below 5%
+  PORT-009: Error "Symbol already in portfolio"
+  PORT-014: isLocked=true, edit button hidden
+
+5. SETTLEMENT TESTS
+-------------------
+
+ID       | Test Case                          | Type     | Priority
+---------|------------------------------------|---------|---------
+SETT-001 | Match starts with >=2 players      | Func    | P0
+SETT-002 | Match cancels with <2 players      | Func    | P0
+SETT-003 | Start prices fetched correctly     | Func    | P0
+SETT-004 | Match ends and enters SETTLING     | Func    | P0
+SETT-005 | End prices fetched correctly       | Func    | P0
+SETT-006 | Position return calculated         | Func    | P0
+SETT-007 | Portfolio return calculated        | Func    | P0
+SETT-008 | Rankings assigned correctly        | Func    | P0
+SETT-009 | Tie-breaker 1: submission time     | Func    | P0
+SETT-010 | Tie-breaker 2: alphabetical name   | Func    | P1
+SETT-011 | Results documents created          | Func    | P0
+SETT-012 | Leaderboard entries created        | Func    | P0
+SETT-013 | User stats updated                 | Func    | P1
+SETT-014 | Settlement idempotency             | Func    | P0
+SETT-015 | Price fetch failure - retry        | Edge    | P0
+SETT-016 | Price fetch failure - fallback     | Edge    | P0
+SETT-017 | Forced settlement after 3 hours    | Edge    | P1
+SETT-018 | Negative returns calculated        | Func    | P0
+SETT-019 | Large positive return (>50%)       | Edge    | P1
+SETT-020 | Split-adjusted price handling      | Func    | P1
+
+Expected Results:
+  SETT-001: status=LIVE, all portfolios locked
+  SETT-002: status=CANCELLED, reason="INSUFFICIENT_PLAYERS"
+  SETT-006: returnPercent = ((end-start)/start)*100
+  SETT-008: Rank 1 has highest return
+  SETT-014: Running settlement twice produces same result
+
+6. LEADERBOARD TESTS
+--------------------
+
+ID       | Test Case                          | Type     | Priority
+---------|------------------------------------|---------|---------
+LEAD-001 | View leaderboard (finished match)  | Func    | P0
+LEAD-002 | View leaderboard (live match)      | Func    | P0
+LEAD-003 | Leaderboard pagination (>20)       | Func    | P1
+LEAD-004 | Current user highlighted           | UI      | P0
+LEAD-005 | Jump to user's rank                | UI      | P1
+LEAD-006 | View result detail                 | Func    | P0
+LEAD-007 | Position breakdown in results      | Func    | P0
+LEAD-008 | Return display formatting          | UI      | P1
+LEAD-009 | Real-time updates (live match)     | Func    | P2
+LEAD-010 | Empty leaderboard (no results yet) | Edge    | P1
+
+Expected Results:
+  LEAD-001: Leaderboard shows ranked entries
+  LEAD-003: "Load more" loads next 20 entries
+  LEAD-004: User's row has distinct styling
+  LEAD-006: Full result with all position details
+
+7. MARKET DATA TESTS
+--------------------
+
+ID       | Test Case                          | Type     | Priority
+---------|------------------------------------|---------|---------
+DATA-001 | Symbol search returns results      | Func    | P0
+DATA-002 | Symbol search - partial match      | Func    | P0
+DATA-003 | Symbol search - debouncing         | Perf    | P1
+DATA-004 | Symbol validation - eligible       | Func    | P0
+DATA-005 | Symbol validation - ineligible ETF | Func    | P0
+DATA-006 | Symbol validation - low volume     | Func    | P1
+DATA-007 | Price fetch - single symbol        | Func    | P0
+DATA-008 | Price fetch - multiple symbols     | Func    | P0
+DATA-009 | Price fetch - API timeout          | Edge    | P0
+DATA-010 | Price fetch - rate limit           | Edge    | P1
+DATA-011 | Symbol cache refresh               | Func    | P1
+DATA-012 | Holiday calendar validation        | Func    | P0
+DATA-013 | Price normalization (cents)        | Func    | P0
+DATA-014 | Exchange code mapping              | Func    | P1
+
+Expected Results:
+  DATA-001: Results returned within 500ms
+  DATA-003: Only one API call for rapid typing
+  DATA-005: Symbol rejected with "ETFs not allowed"
+  DATA-013: Price stored as integer cents
+
+8. SECURITY TESTS
+-----------------
+
+ID       | Test Case                          | Type     | Priority
+---------|------------------------------------|---------|---------
+SEC-001  | Unverified user cannot create match| Security| P0
+SEC-002  | User cannot modify others' portfolio| Security| P0
+SEC-003  | User cannot view others' pre-finish| Security| P0
+SEC-004  | Locked portfolio immutable         | Security| P0
+SEC-005  | Price snapshots immutable          | Security| P0
+SEC-006  | Results immutable                  | Security| P0
+SEC-007  | Rate limit on API endpoints        | Security| P1
+SEC-008  | Invalid auth token rejected        | Security| P0
+SEC-009  | CSRF protection                    | Security| P1
+SEC-010  | Input sanitization                 | Security| P0
+SEC-011  | Duplicate account detection        | Security| P2
+SEC-012  | One portfolio per user per match   | Security| P0
+
+Expected Results:
+  SEC-001: Error "Please verify your email first"
+  SEC-002: Permission denied error
+  SEC-004: Update rejected with "Portfolio is locked"
+  SEC-012: Second portfolio creation rejected
+
+9. PERFORMANCE TESTS
+--------------------
+
+ID       | Test Case                          | Type     | Priority
+---------|------------------------------------|---------|---------
+PERF-001 | Match lobby load time (<2s)        | Perf    | P0
+PERF-002 | Leaderboard load time (<1s)        | Perf    | P0
+PERF-003 | Symbol search response (<500ms)    | Perf    | P0
+PERF-004 | Portfolio submit response (<2s)    | Perf    | P0
+PERF-005 | 100 concurrent users               | Load    | P1
+PERF-006 | Settlement with 100 players        | Perf    | P1
+PERF-007 | Firestore read counts within budget| Cost    | P1
+PERF-008 | Cloud Function execution time      | Perf    | P1
+
+Expected Results:
+  PERF-001: 90th percentile < 2 seconds
+  PERF-005: No errors under load
+  PERF-007: <1M reads/day at projected scale
+
+10. TEST COVERAGE MATRIX
+------------------------
+
+Feature Area          | Unit | Integration | E2E | Manual
+----------------------|------|-------------|-----|-------
+Authentication        | Yes  | Yes         | Yes | Yes
+Match Creation        | Yes  | Yes         | Yes | No
+Match Join/Leave      | Yes  | Yes         | Yes | No
+Portfolio Builder     | Yes  | Yes         | Yes | Yes
+Portfolio Validation  | Yes  | Yes         | No  | No
+Settlement Logic      | Yes  | Yes         | Yes | No
+Ranking Algorithm     | Yes  | Yes         | No  | No
+Leaderboard Display   | No   | Yes         | Yes | Yes
+Symbol Search         | Yes  | Yes         | Yes | No
+Price Fetch           | Yes  | Yes         | No  | No
+Security Rules        | Yes  | Yes         | No  | Yes
+Error Handling        | Yes  | Yes         | Yes | Yes
+
+11. TEST ENVIRONMENT REQUIREMENTS
+---------------------------------
+
+Unit Tests:
+  - Jest/Vitest for JavaScript
+  - Mock Firestore with emulator
+  - Mock external APIs
+
+Integration Tests:
+  - Firebase Emulator Suite
+  - Test Firestore instance
+  - Sandbox API keys
+
+E2E Tests:
+  - Cypress or Playwright
+  - Staging environment
+  - Test user accounts
+
+Load Tests:
+  - k6 or Artillery
+  - Staging environment
+  - Synthetic data
+
+================================================================================
+END OF TEST MATRIX
+================================================================================

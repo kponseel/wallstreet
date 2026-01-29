@@ -1,0 +1,423 @@
+================================================================================
+BATCH 5 — FRONTEND UX & SCREEN FLOW
+Wall Street Fantasy League MVP — Screen List & Navigation Flow
+================================================================================
+
+1. NAVIGATION STRUCTURE
+-----------------------
+
+Primary Navigation (Bottom Tab Bar):
+  [Home] [Matches] [Create] [Profile]
+
+Secondary Navigation:
+  - Stack navigation within each tab
+  - Modal sheets for quick actions
+  - Back navigation via header
+
+Authentication Flow (Separate):
+  - Splash → Login/Signup → Email Verification → Main App
+
+2. SCREEN INVENTORY
+-------------------
+
+2.1 Authentication Screens
+--------------------------
+
+SCREEN: Splash
+--------------
+Purpose: App loading, auth state check
+Route: /splash
+Data Needed: Firebase Auth state
+Navigation:
+  - If authenticated → Home
+  - If not authenticated → Welcome
+
+SCREEN: Welcome
+---------------
+Purpose: Entry point for new/returning users
+Route: /welcome
+Data Needed: None
+Navigation:
+  - "Sign In" → Login
+  - "Create Account" → Signup
+  - "Continue with Google" → OAuth flow → Home
+  - "Continue with Apple" → OAuth flow → Home
+
+SCREEN: Login
+-------------
+Purpose: Email/password authentication
+Route: /login
+Data Needed: None
+Fields:
+  - email: string (email format)
+  - password: string (masked)
+Navigation:
+  - Success → Home
+  - "Forgot Password?" → ForgotPassword
+  - "Create Account" → Signup
+
+SCREEN: Signup
+--------------
+Purpose: New account creation
+Route: /signup
+Data Needed: None
+Fields:
+  - email: string (email format)
+  - password: string (min 8 chars, 1 upper, 1 number)
+  - confirmPassword: string
+  - displayName: string (3-50 chars)
+  - acceptTerms: boolean
+Navigation:
+  - Success → VerifyEmail
+  - "Already have account?" → Login
+
+SCREEN: VerifyEmail
+-------------------
+Purpose: Email verification prompt
+Route: /verify-email
+Data Needed:
+  - user.email
+  - user.emailVerified
+Navigation:
+  - "Resend Email" → trigger resend
+  - "I've Verified" → check status → Home (if verified)
+  - "Change Email" → back to Signup
+
+SCREEN: ForgotPassword
+----------------------
+Purpose: Password reset request
+Route: /forgot-password
+Data Needed: None
+Fields:
+  - email: string
+Navigation:
+  - Success → "Check your email" message → Login
+
+2.2 Main App Screens
+--------------------
+
+SCREEN: Home
+------------
+Purpose: Dashboard, quick actions, recent activity
+Route: / (main tab)
+Data Needed:
+  - user.displayName
+  - user.stats (matchesPlayed, matchesWon, bestReturn)
+  - activeMatches: Array (user's current matches, limit 3)
+  - recentResults: Array (user's recent results, limit 3)
+API Calls:
+  - GET /users/{uid}
+  - GET /matchParticipants?userId={uid}&limit=3
+  - GET /results?userId={uid}&limit=3
+Navigation:
+  - "View All Matches" → MyMatches
+  - Match card tap → MatchDetail
+  - "Join Match" → MatchLobby
+
+SCREEN: MatchLobby
+------------------
+Purpose: Browse and join public matches
+Route: /matches (main tab)
+Data Needed:
+  - publicMatches: Array of Match (status=OPEN, type=PUBLIC)
+  - Pagination: 20 per page
+Fields (Filter):
+  - duration: dropdown (All, 1d, 3d, 7d, 14d, 30d)
+  - startingSoon: boolean (within 24h)
+API Calls:
+  - GET /matches?status=OPEN&type=PUBLIC&orderBy=startDate
+Navigation:
+  - Match card tap → MatchPreview
+  - "Join Private Match" → JoinPrivate modal
+  - Pull to refresh
+
+SCREEN: MatchPreview
+--------------------
+Purpose: View match details before joining
+Route: /matches/{matchId}/preview
+Data Needed:
+  - match: Match document
+  - participantCount: number
+  - timeUntilStart: calculated
+API Calls:
+  - GET /matches/{matchId}
+Navigation:
+  - "Join Match" → PortfolioBuilder
+  - Back → MatchLobby
+
+SCREEN: JoinPrivate (Modal)
+---------------------------
+Purpose: Enter private match code
+Route: /join-private (modal)
+Data Needed: None
+Fields:
+  - matchCode: string (6 chars, alphanumeric)
+Navigation:
+  - "Join" → validate code → MatchPreview
+  - Invalid code → error message
+  - Cancel → dismiss modal
+
+SCREEN: CreateMatch
+-------------------
+Purpose: Create new match
+Route: /create (main tab)
+Data Needed:
+  - user.activeCreatedMatches (count for limit check)
+  - marketHolidays: Array (for date validation)
+Fields:
+  - name: string (3-50 chars)
+  - description: string (0-200 chars, optional)
+  - type: "PUBLIC" | "PRIVATE"
+  - duration: select (1, 3, 5, 7, 14, 30 days)
+  - startDate: date picker (future trading days only)
+API Calls:
+  - POST /matches/create
+Navigation:
+  - Success → MatchCreated confirmation → PortfolioBuilder
+  - "Preview" → validate before submit
+
+SCREEN: MatchCreated (Modal)
+----------------------------
+Purpose: Confirmation after match creation
+Route: /match-created (modal)
+Data Needed:
+  - match: newly created Match
+  - matchCode: string (if private)
+Navigation:
+  - "Build Portfolio" → PortfolioBuilder
+  - "Share Match" → share sheet
+  - "Done" → Home
+
+SCREEN: PortfolioBuilder
+------------------------
+Purpose: Build and submit portfolio
+Route: /matches/{matchId}/portfolio
+Data Needed:
+  - match: Match document
+  - existingPortfolio: Portfolio (if editing)
+  - timeUntilDeadline: calculated
+Fields:
+  - positions: Array of 5 positions
+    - symbol: string (searchable)
+    - allocation: number slider (5%-50%)
+  - totalAllocation: calculated (must = 100%)
+API Calls:
+  - GET /symbols/search?query={q}
+  - POST /portfolios/submit
+Validations:
+  - Exactly 5 positions
+  - Each position 5%-50%
+  - Total exactly 100%
+Navigation:
+  - "Submit Portfolio" → confirmation → MatchDetail
+  - Symbol search → SymbolSearch modal
+  - Back → warning if unsaved
+
+SCREEN: SymbolSearch (Modal)
+----------------------------
+Purpose: Search and select stock symbol
+Route: /symbol-search (modal)
+Data Needed:
+  - searchResults: Array of Symbol
+Fields:
+  - query: string (as-you-type search)
+API Calls:
+  - GET /symbols/search?query={q}&limit=10
+  - Debounced (300ms)
+Navigation:
+  - Symbol tap → return to PortfolioBuilder with selection
+  - Cancel → dismiss
+
+SCREEN: MatchDetail
+-------------------
+Purpose: View match status and details
+Route: /matches/{matchId}
+Data Needed:
+  - match: Match document
+  - userPortfolio: Portfolio (if joined)
+  - participants: Array (limit 10)
+  - leaderboard: Array (if LIVE/FINISHED, limit 10)
+API Calls:
+  - GET /matches/{matchId}
+  - GET /portfolios?matchId={id}&userId={uid}
+  - GET /matchParticipants?matchId={id}&limit=10
+  - GET /leaderboard?matchId={id}&limit=10 (if applicable)
+Navigation:
+  - "View Full Leaderboard" → Leaderboard
+  - "Edit Portfolio" → PortfolioBuilder (if OPEN and not locked)
+  - "View My Result" → ResultDetail
+  - "Leave Match" → confirmation (if OPEN)
+
+SCREEN: Leaderboard
+-------------------
+Purpose: Full match leaderboard
+Route: /matches/{matchId}/leaderboard
+Data Needed:
+  - match: Match document (for context)
+  - leaderboard: Array of LeaderboardEntry
+  - userRank: LeaderboardEntry (current user's position)
+  - Pagination: 20 per page
+API Calls:
+  - GET /leaderboard?matchId={id}&limit=20&offset={n}
+  - GET /results?matchId={id}&userId={uid} (for user's rank)
+Navigation:
+  - Entry tap → ResultDetail (if FINISHED)
+  - "Jump to My Rank" → scroll to user's position
+  - Infinite scroll for more entries
+
+SCREEN: ResultDetail
+--------------------
+Purpose: View detailed results for a player
+Route: /matches/{matchId}/results/{userId}
+Data Needed:
+  - result: Result document
+  - match: Match document (for context)
+API Calls:
+  - GET /results/{matchId}_{userId}
+  - GET /matches/{matchId}
+Navigation:
+  - Back → Leaderboard or MatchDetail
+  - "View Portfolio" → toggle to show positions
+
+SCREEN: MyMatches
+-----------------
+Purpose: User's match history and active matches
+Route: /profile/matches
+Data Needed:
+  - activeMatches: Array (OPEN, LIVE, SETTLING)
+  - pastMatches: Array (FINISHED, CANCELLED)
+  - Pagination: 20 per page per section
+API Calls:
+  - GET /matchParticipants?userId={uid}
+  - For each participation, get match details
+Navigation:
+  - Match tap → MatchDetail
+  - Tab toggle: "Active" | "History"
+
+SCREEN: Profile
+---------------
+Purpose: User profile and settings
+Route: /profile (main tab)
+Data Needed:
+  - user: User document
+  - stats: user.stats
+API Calls:
+  - GET /users/{uid}
+Navigation:
+  - "Edit Profile" → EditProfile
+  - "My Matches" → MyMatches
+  - "Settings" → Settings
+  - "Sign Out" → confirmation → Welcome
+
+SCREEN: EditProfile
+-------------------
+Purpose: Edit user profile
+Route: /profile/edit
+Data Needed:
+  - user: User document
+Fields:
+  - displayName: string
+  - photoURL: image picker
+API Calls:
+  - PATCH /users/{uid}
+Navigation:
+  - "Save" → back to Profile
+  - Cancel → back to Profile
+
+SCREEN: Settings
+----------------
+Purpose: App settings and preferences
+Route: /profile/settings
+Data Needed:
+  - user.preferences
+Fields:
+  - notifications: boolean toggle
+  - timezone: dropdown
+API Calls:
+  - PATCH /users/{uid}/preferences
+Navigation:
+  - "Delete Account" → DeleteAccount confirmation
+  - Back → Profile
+
+SCREEN: DeleteAccount
+---------------------
+Purpose: Account deletion confirmation
+Route: /profile/delete (modal)
+Data Needed:
+  - activeMatchCount: number
+Fields:
+  - confirmation: string (must type "DELETE")
+API Calls:
+  - POST /auth/delete-account
+Navigation:
+  - Confirmed → Welcome screen
+  - Cancel → dismiss
+
+3. NAVIGATION FLOW DIAGRAM (ASCII)
+----------------------------------
+
+                    +--------+
+                    | Splash |
+                    +--------+
+                        |
+            +-----------+-----------+
+            |                       |
+        [not auth]              [auth]
+            |                       |
+       +---------+             +------+
+       | Welcome |             | Home |<------------------+
+       +---------+             +------+                   |
+            |                     |                       |
+    +-------+-------+         [tab bar]                   |
+    |       |       |             |                       |
++-------+ +-------+ +-----+  +--------+--------+          |
+| Login | |Signup | |OAuth|  |Matches |Create |Profile|   |
++-------+ +-------+ +-----+  +--------+--------+-------+  |
+    |         |       |          |        |        |      |
+    +---------+-------+      +---+---+ +--+--+  +--+--+   |
+              |              |Lobby  | |Form | |View  |   |
+        +-----+-----+        +-------+ +-----+ +------+   |
+        |VerifyEmail|            |        |       |       |
+        +-----------+        +---+----+   |   +---+---+   |
+              |              |Preview |   |   |MyMatch|   |
+              +--------------+--------+   |   +-------+   |
+                                 |        |       |       |
+                          +-----+-----+   |   +---+---+   |
+                          |Portfolio  |<--+   |Detail |   |
+                          |Builder    |       +-------+   |
+                          +-----------+           |       |
+                                |             +---+---+   |
+                          +-----+-----+       |Leader |   |
+                          |MatchDetail|<------+board  |   |
+                          +-----------+       +-------+   |
+                                |                 |       |
+                                +-----------------+-------+
+
+4. DATA REQUIREMENTS SUMMARY
+----------------------------
+
+Screen              | Primary Query                    | Real-time?
+--------------------|----------------------------------|------------
+Home                | user, active matches, results    | No
+MatchLobby          | public OPEN matches              | No (refresh)
+MatchPreview        | single match                     | No
+PortfolioBuilder    | match, portfolio, symbol search  | No
+MatchDetail         | match, portfolio, leaderboard    | Yes (LIVE)
+Leaderboard         | leaderboard entries              | Yes (LIVE)
+ResultDetail        | single result                    | No
+MyMatches           | user's participations            | No
+Profile             | user document                    | No
+
+5. DEEP LINKING ROUTES
+----------------------
+
+Pattern                          | Screen
+---------------------------------|------------------
+wsfl://matches/{matchId}         | MatchDetail
+wsfl://matches/{matchId}/join    | MatchPreview (with join intent)
+wsfl://join/{matchCode}          | JoinPrivate → MatchPreview
+wsfl://results/{matchId}/{userId}| ResultDetail
+
+================================================================================
+END OF SCREEN LIST & NAVIGATION FLOW
+================================================================================

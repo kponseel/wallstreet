@@ -1,0 +1,273 @@
+{
+  "_documentation": "Wall Street Fantasy League MVP - Firestore Schema",
+  "_version": "1.0.0",
+  "_conventions": {
+    "timestamps": "All timestamps are Firestore Timestamp objects (seconds + nanoseconds)",
+    "ids": "Document IDs use Firestore auto-generated IDs unless specified otherwise",
+    "enums": "Stored as strings for readability",
+    "currency": "Virtual dollars stored as integers in cents (e.g., 1000000 = $10,000.00)",
+    "percentages": "Stored as floats with 6 decimal precision (e.g., 5.385123 = 5.385123%)"
+  },
+
+  "collections": {
+
+    "users": {
+      "_description": "Registered user accounts",
+      "_documentId": "Firebase Auth UID",
+      "_readPattern": "Single doc reads for profile, auth checks",
+      "_writePattern": "Created on signup, updated for profile changes",
+      "schema": {
+        "uid": { "type": "string", "required": true, "description": "Firebase Auth UID (same as doc ID)" },
+        "email": { "type": "string", "required": true, "description": "User email address" },
+        "displayName": { "type": "string", "required": true, "maxLength": 50, "description": "Public display name" },
+        "photoURL": { "type": "string", "required": false, "description": "Profile photo URL" },
+        "emailVerified": { "type": "boolean", "required": true, "default": false },
+        "createdAt": { "type": "timestamp", "required": true, "description": "Account creation time" },
+        "lastLoginAt": { "type": "timestamp", "required": true, "description": "Most recent login" },
+        "status": { "type": "string", "enum": ["ACTIVE", "SUSPENDED", "DELETED"], "default": "ACTIVE" },
+        "stats": {
+          "type": "map",
+          "description": "Aggregated user statistics",
+          "fields": {
+            "matchesPlayed": { "type": "integer", "default": 0 },
+            "matchesWon": { "type": "integer", "default": 0 },
+            "totalReturns": { "type": "float", "default": 0.0, "description": "Cumulative % returns" },
+            "bestReturn": { "type": "float", "default": 0.0, "description": "Best single match %" },
+            "averageRank": { "type": "float", "default": 0.0 }
+          }
+        },
+        "preferences": {
+          "type": "map",
+          "description": "User preferences",
+          "fields": {
+            "timezone": { "type": "string", "default": "America/New_York" },
+            "notifications": { "type": "boolean", "default": true }
+          }
+        }
+      }
+    },
+
+    "matches": {
+      "_description": "Match/competition definitions",
+      "_documentId": "Auto-generated",
+      "_readPattern": "List queries for lobby, single reads for details",
+      "_writePattern": "Created by users, updated by Cloud Functions for state transitions",
+      "schema": {
+        "matchId": { "type": "string", "required": true, "description": "Same as doc ID" },
+        "name": { "type": "string", "required": true, "minLength": 3, "maxLength": 50 },
+        "description": { "type": "string", "required": false, "maxLength": 200 },
+        "creatorId": { "type": "string", "required": true, "description": "UID of match creator" },
+        "creatorDisplayName": { "type": "string", "required": true, "description": "Denormalized for display" },
+        "type": { "type": "string", "enum": ["PUBLIC", "PRIVATE"], "required": true },
+        "matchCode": { "type": "string", "required": false, "length": 6, "description": "Join code for PRIVATE matches" },
+        "status": {
+          "type": "string",
+          "enum": ["DRAFT", "OPEN", "LIVE", "SETTLING", "FINISHED", "CANCELLED"],
+          "required": true,
+          "default": "DRAFT"
+        },
+        "durationDays": { "type": "integer", "enum": [1, 3, 5, 7, 14, 30], "required": true },
+        "startDate": { "type": "timestamp", "required": true, "description": "Market close on this date" },
+        "endDate": { "type": "timestamp", "required": true, "description": "Market close on this date" },
+        "entryDeadline": { "type": "timestamp", "required": true, "description": "Same as startDate for MVP" },
+        "playerCount": { "type": "integer", "required": true, "default": 0, "description": "Current participants" },
+        "maxPlayers": { "type": "integer", "required": true, "default": 100 },
+        "minPlayers": { "type": "integer", "required": true, "default": 2 },
+        "createdAt": { "type": "timestamp", "required": true },
+        "publishedAt": { "type": "timestamp", "required": false },
+        "liveAt": { "type": "timestamp", "required": false },
+        "settlingAt": { "type": "timestamp", "required": false },
+        "finishedAt": { "type": "timestamp", "required": false },
+        "cancelledAt": { "type": "timestamp", "required": false },
+        "cancellationReason": { "type": "string", "enum": ["INSUFFICIENT_PLAYERS", "CREATOR_CANCELLED", "SYSTEM_ERROR"], "required": false },
+        "dataQualityFlag": { "type": "string", "enum": ["OK", "STALE_PRICES", "ESTIMATED_PRICES"], "default": "OK" },
+        "symbols": { "type": "array", "items": "string", "description": "All unique symbols in match (denormalized)" }
+      }
+    },
+
+    "portfolios": {
+      "_description": "Player portfolios for each match",
+      "_documentId": "Auto-generated",
+      "_readPattern": "Query by matchId for leaderboard, by userId for history",
+      "_writePattern": "Created on join, updated until lock, immutable after",
+      "schema": {
+        "portfolioId": { "type": "string", "required": true },
+        "matchId": { "type": "string", "required": true, "indexed": true },
+        "userId": { "type": "string", "required": true, "indexed": true },
+        "userDisplayName": { "type": "string", "required": true },
+        "positions": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "items": {
+            "type": "map",
+            "fields": {
+              "symbol": { "type": "string", "required": true, "description": "Stock ticker" },
+              "exchange": { "type": "string", "required": true, "description": "NYSE, NASDAQ, AMEX" },
+              "companyName": { "type": "string", "required": true },
+              "allocationCents": { "type": "integer", "required": true, "description": "V$ allocation in cents" },
+              "allocationPercent": { "type": "float", "required": true, "description": "% of portfolio" }
+            }
+          }
+        },
+        "totalAllocationCents": { "type": "integer", "required": true, "value": 1000000, "description": "Must equal 1000000 ($10,000)" },
+        "isLocked": { "type": "boolean", "required": true, "default": false },
+        "submittedAt": { "type": "timestamp", "required": true, "description": "Last submission time" },
+        "lockedAt": { "type": "timestamp", "required": false, "description": "When portfolio was locked" },
+        "createdAt": { "type": "timestamp", "required": true }
+      }
+    },
+
+    "priceSnapshots": {
+      "_description": "EOD price snapshots for match settlement",
+      "_documentId": "Composite: {date}_{symbol}_{exchange}",
+      "_readPattern": "Query by symbol+date for settlement",
+      "_writePattern": "Created by Cloud Functions, immutable after creation",
+      "schema": {
+        "snapshotId": { "type": "string", "required": true, "description": "date_symbol_exchange" },
+        "symbol": { "type": "string", "required": true, "indexed": true },
+        "exchange": { "type": "string", "required": true },
+        "date": { "type": "string", "required": true, "format": "YYYY-MM-DD", "indexed": true },
+        "closePrice": { "type": "integer", "required": true, "description": "Price in cents (e.g., 15000 = $150.00)" },
+        "closePriceFloat": { "type": "float", "required": true, "description": "Price as float for display" },
+        "currency": { "type": "string", "required": true, "default": "USD" },
+        "volume": { "type": "integer", "required": false },
+        "adjustedForSplits": { "type": "boolean", "required": true, "default": true },
+        "source": { "type": "string", "required": true, "description": "Data provider name" },
+        "fetchedAt": { "type": "timestamp", "required": true },
+        "dataQuality": { "type": "string", "enum": ["LIVE", "DELAYED", "STALE", "ESTIMATED"], "default": "LIVE" }
+      }
+    },
+
+    "results": {
+      "_description": "Individual player results per match",
+      "_documentId": "Composite: {matchId}_{userId}",
+      "_readPattern": "Query by matchId for leaderboard, by userId for history",
+      "_writePattern": "Created during settlement, immutable after",
+      "schema": {
+        "resultId": { "type": "string", "required": true },
+        "matchId": { "type": "string", "required": true, "indexed": true },
+        "userId": { "type": "string", "required": true, "indexed": true },
+        "userDisplayName": { "type": "string", "required": true },
+        "portfolioId": { "type": "string", "required": true },
+        "positionResults": {
+          "type": "array",
+          "items": {
+            "type": "map",
+            "fields": {
+              "symbol": { "type": "string", "required": true },
+              "exchange": { "type": "string", "required": true },
+              "allocationCents": { "type": "integer", "required": true },
+              "allocationPercent": { "type": "float", "required": true },
+              "startPriceCents": { "type": "integer", "required": true },
+              "endPriceCents": { "type": "integer", "required": true },
+              "returnPercent": { "type": "float", "required": true },
+              "weightedContribution": { "type": "float", "required": true }
+            }
+          }
+        },
+        "portfolioReturnPercent": { "type": "float", "required": true, "indexed": true },
+        "startValueCents": { "type": "integer", "required": true, "value": 1000000 },
+        "endValueCents": { "type": "integer", "required": true },
+        "rank": { "type": "integer", "required": true, "indexed": true },
+        "totalParticipants": { "type": "integer", "required": true },
+        "submittedAt": { "type": "timestamp", "required": true, "description": "For tiebreaker" },
+        "calculatedAt": { "type": "timestamp", "required": true },
+        "dataQualityFlags": { "type": "array", "items": "string", "description": "Any data quality issues" }
+      }
+    },
+
+    "leaderboard": {
+      "_description": "Denormalized leaderboard entries for fast reads",
+      "_documentId": "Composite: {matchId}_{rank}",
+      "_readPattern": "Query by matchId ordered by rank, paginated",
+      "_writePattern": "Created during settlement, updated if recalculated",
+      "schema": {
+        "entryId": { "type": "string", "required": true },
+        "matchId": { "type": "string", "required": true, "indexed": true },
+        "rank": { "type": "integer", "required": true, "indexed": true },
+        "userId": { "type": "string", "required": true },
+        "userDisplayName": { "type": "string", "required": true },
+        "userPhotoURL": { "type": "string", "required": false },
+        "portfolioReturnPercent": { "type": "float", "required": true },
+        "endValueCents": { "type": "integer", "required": true },
+        "topHolding": { "type": "string", "required": true, "description": "Best performing symbol" },
+        "topHoldingReturn": { "type": "float", "required": true }
+      }
+    },
+
+    "matchParticipants": {
+      "_description": "Tracks who is in each match (for queries)",
+      "_documentId": "Composite: {matchId}_{userId}",
+      "_readPattern": "Query by matchId for participant list, by userId for user's matches",
+      "_writePattern": "Created on join, deleted on leave (before lock)",
+      "schema": {
+        "participantId": { "type": "string", "required": true },
+        "matchId": { "type": "string", "required": true, "indexed": true },
+        "userId": { "type": "string", "required": true, "indexed": true },
+        "userDisplayName": { "type": "string", "required": true },
+        "joinedAt": { "type": "timestamp", "required": true },
+        "hasSubmittedPortfolio": { "type": "boolean", "required": true, "default": false },
+        "portfolioId": { "type": "string", "required": false }
+      }
+    },
+
+    "symbolCache": {
+      "_description": "Cached symbol information for search",
+      "_documentId": "Composite: {symbol}_{exchange}",
+      "_readPattern": "Query by symbol prefix for search autocomplete",
+      "_writePattern": "Updated periodically by background job",
+      "schema": {
+        "cacheId": { "type": "string", "required": true },
+        "symbol": { "type": "string", "required": true, "indexed": true },
+        "exchange": { "type": "string", "required": true },
+        "companyName": { "type": "string", "required": true },
+        "sector": { "type": "string", "required": false },
+        "industry": { "type": "string", "required": false },
+        "marketCap": { "type": "string", "enum": ["LARGE", "MID", "SMALL"], "required": false },
+        "avgVolume30d": { "type": "integer", "required": true },
+        "isEligible": { "type": "boolean", "required": true },
+        "ineligibilityReason": { "type": "string", "required": false },
+        "lastUpdated": { "type": "timestamp", "required": true }
+      }
+    },
+
+    "systemConfig": {
+      "_description": "System configuration and feature flags",
+      "_documentId": "Fixed: 'config'",
+      "_readPattern": "Single doc read on app init",
+      "_writePattern": "Admin only, rare updates",
+      "schema": {
+        "maintenanceMode": { "type": "boolean", "default": false },
+        "minAppVersion": { "type": "string" },
+        "maxMatchesPerUser": { "type": "integer", "default": 5 },
+        "priceDataProvider": { "type": "string" },
+        "marketHolidays": { "type": "array", "items": "string", "description": "YYYY-MM-DD format" },
+        "featureFlags": {
+          "type": "map",
+          "fields": {
+            "newUserOnboarding": { "type": "boolean" },
+            "socialLogin": { "type": "boolean" }
+          }
+        }
+      }
+    },
+
+    "auditLog": {
+      "_description": "Audit trail for important actions",
+      "_documentId": "Auto-generated",
+      "_readPattern": "Admin queries only, by userId or matchId",
+      "_writePattern": "Append-only by Cloud Functions",
+      "schema": {
+        "logId": { "type": "string", "required": true },
+        "action": { "type": "string", "required": true, "enum": ["MATCH_CREATED", "PORTFOLIO_SUBMITTED", "MATCH_STARTED", "MATCH_SETTLED", "USER_FLAGGED"] },
+        "actorId": { "type": "string", "required": true, "description": "User or 'SYSTEM'" },
+        "targetType": { "type": "string", "enum": ["USER", "MATCH", "PORTFOLIO"] },
+        "targetId": { "type": "string", "required": true },
+        "details": { "type": "map", "description": "Action-specific details" },
+        "timestamp": { "type": "timestamp", "required": true },
+        "ipAddress": { "type": "string", "required": false }
+      }
+    }
+  }
+}
