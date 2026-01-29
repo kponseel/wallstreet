@@ -12,6 +12,7 @@ import { MatchDetailPage } from '@/pages/MatchDetail';
 import { CreateMatchPage } from '@/pages/CreateMatch';
 import { PortfolioBuilderPage } from '@/pages/PortfolioBuilder';
 import { ProfilePage } from '@/pages/Profile';
+import { ChangelogPage } from '@/pages/Changelog';
 
 // Components
 import { Layout } from '@/components/Layout';
@@ -79,6 +80,7 @@ export default function App() {
         }
       />
       <Route path="/verify-email" element={<VerifyEmailPage />} />
+      <Route path="/changelog" element={<ChangelogPage />} />
 
       {/* Protected routes with layout */}
       <Route

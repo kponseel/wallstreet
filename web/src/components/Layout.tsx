@@ -1,4 +1,5 @@
-import { Outlet, NavLink } from 'react-router-dom';
+import { Outlet, NavLink, Link } from 'react-router-dom';
+import { APP_VERSION } from '@/version';
 
 const navItems = [
   { to: '/', label: 'Home', icon: HomeIcon },
@@ -12,8 +13,11 @@ export function Layout() {
     <div className="min-h-screen bg-gray-50 pb-20">
       {/* Header */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-40">
-        <div className="max-w-lg mx-auto px-4 py-3">
+        <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
           <h1 className="text-lg font-bold text-primary-700">WSFL</h1>
+          <Link to="/changelog" className="text-xs text-gray-400 hover:text-primary-600">
+            v{APP_VERSION}
+          </Link>
         </div>
       </header>
 
