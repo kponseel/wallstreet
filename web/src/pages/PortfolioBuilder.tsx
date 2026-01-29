@@ -124,7 +124,11 @@ export function PortfolioBuilderPage() {
           disabled={positions.length >= 5}
         />
 
-        {searchResults.length > 0 && (
+        {loading && (
+          <div className="mt-2 text-center text-gray-500 text-sm">Searching...</div>
+        )}
+
+        {!loading && searchResults.length > 0 && (
           <div className="mt-2 border border-gray-200 rounded-lg divide-y max-h-48 overflow-auto">
             {searchResults.map((symbol) => (
               <button

@@ -1,5 +1,4 @@
 import { Outlet, NavLink } from 'react-router-dom';
-import { useAuthStore } from '@/hooks/useAuthStore';
 
 const navItems = [
   { to: '/', label: 'Home', icon: HomeIcon },
