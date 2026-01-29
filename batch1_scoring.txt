@@ -1,0 +1,204 @@
+================================================================================
+BATCH 1 — PRODUCT & GAME LOGIC
+Wall Street Fantasy League MVP — Scoring & Ranking Specification
+================================================================================
+
+1. FUNDAMENTAL CONCEPTS
+-----------------------
+
+1.1 Virtual Currency
+    - Unit: Virtual Dollars (V$)
+    - Starting capital per match: V$10,000.00
+    - Precision: 2 decimal places for currency, 4 for shares
+
+1.2 Time Basis
+    - All calculations based on End-of-Day (EOD) closing prices
+    - Reference timezone: US Eastern Time (ET)
+    - Market close: 16:00 ET
+
+2. POSITION RETURN CALCULATION
+------------------------------
+
+2.1 Formula for Individual Position Return
+
+    Position Return (%) = ((End Price - Start Price) / Start Price) × 100
+
+    Where:
+    - Start Price = EOD closing price on match start date
+    - End Price = EOD closing price on match end date
+
+2.2 Worked Example
+
+    Stock: AAPL
+    Allocation: V$2,000
+    Start Price: $150.00
+    End Price: $157.50
+
+    Position Return = ((157.50 - 150.00) / 150.00) × 100
+    Position Return = (7.50 / 150.00) × 100
+    Position Return = 5.00%
+
+3. PORTFOLIO RETURN CALCULATION
+-------------------------------
+
+3.1 Formula for Portfolio Return
+
+    Portfolio Return (%) = Σ (Position Weight × Position Return)
+
+    Where:
+    - Position Weight = Position Allocation / Total Portfolio Value
+    - Total Portfolio Value = V$10,000
+
+3.2 Worked Example
+
+    Position | Symbol | Allocation | Weight | Return | Weighted Return
+    ---------|--------|------------|--------|--------|----------------
+    1        | AAPL   | V$2,000    | 20%    | +5.00% | +1.00%
+    2        | MSFT   | V$2,500    | 25%    | +3.20% | +0.80%
+    3        | GOOGL  | V$1,500    | 15%    | -2.10% | -0.315%
+    4        | AMZN   | V$2,000    | 20%    | +7.50% | +1.50%
+    5        | NVDA   | V$2,000    | 20%    | +12.00%| +2.40%
+    ---------|--------|------------|--------|--------|----------------
+    TOTAL    |        | V$10,000   | 100%   |        | +5.385%
+
+    Portfolio Return = +5.385%
+
+3.3 Final Portfolio Value (Display Only)
+
+    Final Value = Starting Capital × (1 + Portfolio Return / 100)
+    Final Value = V$10,000 × (1 + 5.385 / 100)
+    Final Value = V$10,000 × 1.05385
+    Final Value = V$10,538.50
+
+4. RANKING ALGORITHM
+--------------------
+
+4.1 Primary Sort
+    - Sort all players by Portfolio Return in DESCENDING order
+    - Highest return = Rank 1
+
+4.2 Tie-Breaker Rules (Applied in Order)
+
+    Tie-Breaker | Rule                                    | Direction
+    ------------|----------------------------------------|------------
+    1           | Portfolio submission timestamp          | Earlier wins
+    2           | Username (case-insensitive)            | Alphabetical
+
+4.3 Rank Assignment
+    - Ranks are sequential (1, 2, 3, ..., N)
+    - No gaps in rankings even after tie-breakers
+    - All players receive a unique rank
+
+4.4 Worked Example with Ties
+
+    Player    | Return   | Submitted At         | Final Rank
+    ----------|----------|---------------------|------------
+    Alice     | +5.385%  | 2024-01-15 09:00:00 | 1
+    Bob       | +5.385%  | 2024-01-15 10:30:00 | 2
+    Charlie   | +5.385%  | 2024-01-15 10:30:00 | 3 (alphabetical)
+    Diana     | +4.200%  | 2024-01-14 08:00:00 | 4
+    Eve       | -1.500%  | 2024-01-15 11:00:00 | 5
+
+5. PRICE ADJUSTMENTS
+--------------------
+
+5.1 Stock Splits
+    - All prices are split-adjusted
+    - If split occurs during match, adjusted prices used
+    - Example: 2:1 split, pre-split $200 → post-split $100
+
+5.2 Dividends
+    - Dividends are NOT included in return calculations
+    - Price-only returns (not total returns)
+    - Rationale: Simplicity for MVP, consistent with pure price movement
+
+5.3 Reverse Splits
+    - Handled same as forward splits
+    - Adjusted prices used automatically
+
+6. SPECIAL SCENARIOS
+--------------------
+
+6.1 Symbol Delisted During Match
+    - Use last traded price as end price
+    - Flag result with dataQualityFlag = "DELISTED"
+    - Player retains position in ranking
+
+6.2 Trading Halted at End
+    - Use last available EOD price
+    - If no price for >5 trading days, use last known price
+    - Flag result with dataQualityFlag = "STALE"
+
+6.3 Negative Returns
+    - Fully supported (losses are valid)
+    - Minimum theoretical return: -100% (stock goes to $0)
+    - No floor or protection for losses
+
+6.4 All Players Negative
+    - Normal ranking applies
+    - Smallest loss = Rank 1
+    - Example: -2% beats -5%
+
+7. LEADERBOARD AGGREGATION
+--------------------------
+
+7.1 Match Leaderboard Fields
+
+    Field           | Type    | Description
+    ----------------|---------|----------------------------------
+    rank            | Integer | Final position (1 to N)
+    userId          | String  | Player identifier
+    displayName     | String  | Player's display name
+    portfolioReturn | Float   | Percentage return (2 decimals)
+    finalValue      | Float   | Final V$ value (2 decimals)
+    submittedAt     | Timestamp| Portfolio lock time
+
+7.2 Display Formatting
+
+    - Returns: Show with % sign, 2 decimal places
+    - Positive: Green color, "+" prefix (+5.38%)
+    - Negative: Red color, "-" prefix (-2.10%)
+    - Zero: Gray color, no prefix (0.00%)
+    - Values: Currency format with V$ prefix (V$10,538.50)
+
+8. CALCULATION PRECISION
+------------------------
+
+8.1 Internal Precision
+    - Prices: 4 decimal places
+    - Shares: 6 decimal places
+    - Returns: 6 decimal places internally
+
+8.2 Display Precision
+    - Prices: 2 decimal places
+    - Returns: 2 decimal places
+    - Values: 2 decimal places
+
+8.3 Rounding Rules
+    - Use banker's rounding (round half to even)
+    - Apply rounding only for display, not intermediate calculations
+
+9. SETTLEMENT PSEUDOCODE
+------------------------
+
+Step 1: Fetch end prices for all unique symbols in match
+Step 2: For each portfolio in match:
+    Step 2a: For each position in portfolio:
+        - Retrieve start price from PriceSnapshot (start date)
+        - Retrieve end price from PriceSnapshot (end date)
+        - Calculate position return
+        - Calculate weighted contribution
+    Step 2b: Sum weighted contributions for portfolio return
+    Step 2c: Calculate final portfolio value
+    Step 2d: Store Result document
+Step 3: Collect all Results for match
+Step 4: Sort by portfolioReturn descending
+Step 5: Apply tie-breaker 1 (submittedAt)
+Step 6: Apply tie-breaker 2 (username alphabetical)
+Step 7: Assign sequential ranks
+Step 8: Write LeaderboardEntry documents
+Step 9: Update match status to FINISHED
+
+================================================================================
+END OF SCORING & RANKING SPECIFICATION
+================================================================================

@@ -1,0 +1,407 @@
+================================================================================
+BATCH 4 — BACKEND LOGIC & CLOUD FUNCTIONS
+Wall Street Fantasy League MVP — Workflow Sequences
+================================================================================
+
+1. MATCH START WORKFLOW
+-----------------------
+
+Trigger: Cloud Scheduler (processMatchStarts) every 15 minutes
+
+1.1 Sequence Diagram (Text)
+---------------------------
+
+Cloud Scheduler --> processMatchStarts --> Firestore (query OPEN matches)
+                                       <-- List of matches due to start
+                                       --> Pub/Sub (publish to startMatch topic)
+
+Pub/Sub --> startMatch --> Firestore (get match document)
+                       <-- Match data with status=OPEN
+                       --> Firestore (query portfolios for match)
+                       <-- List of portfolios
+                       [Decision: portfolios.length >= 2?]
+                       |
+                       +-- NO --> Firestore (update match status=CANCELLED)
+                       |       --> Firestore (delete matchParticipants)
+                       |       --> auditLog (log cancellation)
+                       |       <-- DONE
+                       |
+                       +-- YES --> Extract unique symbols from all portfolios
+                               --> fetchPriceSnapshot (for all symbols, start date)
+                               [Decision: price fetch success?]
+                               |
+                               +-- NO --> [Retry logic - see 1.3]
+                               |
+                               +-- YES --> Firestore (batch write priceSnapshots)
+                                       --> Firestore (batch update portfolios: isLocked=true)
+                                       --> Firestore (update match: status=LIVE, liveAt=now)
+                                       --> auditLog (log match start)
+                                       <-- DONE
+
+1.2 Detailed Steps
+------------------
+Step 1: Scheduler Trigger
+  - Cloud Scheduler fires at :00, :15, :30, :45 past each hour
+  - Triggers processMatchStarts Cloud Function
+
+Step 2: Query Due Matches
+  - Query: matches where status="OPEN" AND startDate <= now
+  - Limit: 50 matches per batch
+  - Order: startDate ASC (oldest first)
+
+Step 3: Publish to Topic
+  - For each match, publish message to "match-start" Pub/Sub topic
+  - Message contains: { matchId: string }
+  - Each message triggers startMatch function independently
+
+Step 4: Validate Match State
+  - Re-fetch match document (could have changed)
+  - Verify status is still OPEN
+  - If not OPEN, exit (idempotency check)
+
+Step 5: Count Portfolios
+  - Query portfolios where matchId = X
+  - Count documents with hasSubmittedPortfolio = true
+
+Step 6: Handle Insufficient Players
+  - If count < 2, cancel match
+  - Set status = CANCELLED
+  - Set cancellationReason = "INSUFFICIENT_PLAYERS"
+  - Delete all portfolios and matchParticipants
+  - Exit workflow
+
+Step 7: Collect Symbols
+  - From all portfolios, extract unique (symbol, exchange) pairs
+  - Store in array for price fetch
+
+Step 8: Fetch Start Prices
+  - Call fetchPriceSnapshot with all symbols and startDate
+  - startDate = match.startDate (date portion)
+  - Wait for all prices to return
+
+Step 9: Handle Price Fetch Failure
+  - See retry logic in section 1.3
+
+Step 10: Store Price Snapshots
+  - Batch write all priceSnapshot documents
+  - Document ID: {date}_{symbol}_{exchange}
+
+Step 11: Lock Portfolios
+  - Batch update all portfolios:
+    - isLocked = true
+    - lockedAt = now
+
+Step 12: Update Match Status
+  - Update match document:
+    - status = LIVE
+    - liveAt = now
+
+Step 13: Log to Audit
+  - Create auditLog entry:
+    - action = "MATCH_STARTED"
+    - targetId = matchId
+    - details = { playerCount, symbolCount }
+
+1.3 Retry Logic for Price Fetch
+-------------------------------
+Attempt 1: Immediate
+  - Call price API
+  - If success: continue
+  - If failure: wait 5 seconds
+
+Attempt 2: After 5s backoff
+  - Retry price API
+  - If success: continue
+  - If failure: wait 15 seconds
+
+Attempt 3: After 15s backoff
+  - Retry price API
+  - If success: continue
+  - If failure: wait 45 seconds
+
+Attempt 4: After 45s backoff (final)
+  - Retry price API
+  - If success: continue
+  - If failure: DELAY MATCH START
+
+On Final Failure:
+  - Do NOT start match
+  - Update match.startDate to next trading day
+  - Notify participants of delay
+  - Log incident to auditLog
+  - Alert operations team
+
+1.4 Timing Constraints
+----------------------
+- Function timeout: 540 seconds
+- Expected execution: 30-120 seconds (depending on symbol count)
+- Price API timeout: 30 seconds per batch
+- Total retry window: ~65 seconds
+
+2. MATCH END WORKFLOW
+---------------------
+
+Trigger: Cloud Scheduler (processMatchEnds) every 15 minutes
+
+2.1 Sequence Diagram (Text)
+---------------------------
+
+Cloud Scheduler --> processMatchEnds --> Firestore (query LIVE matches)
+                                     <-- List of matches due to end
+                                     --> Pub/Sub (publish to endMatch topic)
+
+Pub/Sub --> endMatch --> Firestore (get match document)
+                     <-- Match data with status=LIVE
+                     --> Firestore (update match: status=SETTLING, settlingAt=now)
+                     --> Pub/Sub (publish to settleMatch topic)
+                     <-- DONE
+
+Pub/Sub --> settleMatch --> Firestore (get match and portfolios)
+                        <-- Match + portfolios data
+                        --> fetchPriceSnapshot (for all symbols, end date)
+                        [Decision: price fetch success?]
+                        |
+                        +-- NO --> [Retry logic - see 2.3]
+                        |
+                        +-- YES --> Calculate returns for each position
+                                --> Calculate portfolio returns
+                                --> Rank all players
+                                --> Apply tie-breakers
+                                --> Firestore (batch write Results)
+                                --> Firestore (batch write LeaderboardEntries)
+                                --> Firestore (batch update user stats)
+                                --> Firestore (update match: status=FINISHED)
+                                --> auditLog (log settlement)
+                                <-- DONE
+
+2.2 Detailed Steps
+------------------
+Step 1: Scheduler Trigger
+  - Cloud Scheduler fires every 15 minutes
+  - Triggers processMatchEnds Cloud Function
+
+Step 2: Query Due Matches
+  - Query: matches where status="LIVE" AND endDate <= now
+  - Limit: 50 matches per batch
+  - Order: endDate ASC (oldest first)
+
+Step 3: Publish to Topic
+  - For each match, publish message to "match-end" Pub/Sub topic
+  - Message contains: { matchId: string }
+
+Step 4: Transition to SETTLING
+  - Fetch match document
+  - Verify status is LIVE
+  - Update status = SETTLING
+  - Set settlingAt = now
+  - Publish to "match-settle" topic
+
+Step 5: Fetch Portfolios
+  - Query all portfolios for matchId
+  - Load into memory for processing
+
+Step 6: Collect Symbols
+  - Extract unique symbols from all portfolios
+  - Same symbols used in start price fetch
+
+Step 7: Fetch End Prices
+  - Call fetchPriceSnapshot with all symbols and endDate
+  - endDate = match.endDate (date portion)
+
+Step 8: Handle Price Fetch Failure
+  - See retry logic in section 2.3
+
+Step 9: Calculate Position Returns
+  - For each portfolio, for each position:
+    - startPrice = priceSnapshot[startDate][symbol]
+    - endPrice = priceSnapshot[endDate][symbol]
+    - returnPercent = ((endPrice - startPrice) / startPrice) * 100
+
+Step 10: Calculate Portfolio Returns
+  - For each portfolio:
+    - Sum weighted contributions
+    - portfolioReturn = Σ (allocationPercent * returnPercent / 100)
+
+Step 11: Calculate End Values
+  - endValueCents = 1000000 * (1 + portfolioReturn / 100)
+
+Step 12: Rank Players
+  - Sort portfolios by portfolioReturn descending
+  - Apply tie-breaker 1: submittedAt ascending
+  - Apply tie-breaker 2: displayName alphabetical
+  - Assign sequential ranks 1, 2, 3, ...
+
+Step 13: Create Result Documents
+  - For each portfolio, create Result document
+  - Include all position details and returns
+  - Include rank and totalParticipants
+
+Step 14: Create Leaderboard Entries
+  - For each result, create LeaderboardEntry
+  - Denormalized for fast queries
+
+Step 15: Update User Stats
+  - For each user, update stats:
+    - matchesPlayed++
+    - if rank == 1: matchesWon++
+    - totalReturns += portfolioReturn
+    - Update bestReturn if applicable
+    - Recalculate averageRank
+
+Step 16: Finalize Match
+  - Update match document:
+    - status = FINISHED
+    - finishedAt = now
+
+Step 17: Log to Audit
+  - Create auditLog entry:
+    - action = "MATCH_SETTLED"
+    - targetId = matchId
+    - details = { playerCount, winner, avgReturn }
+
+2.3 Retry Logic for Settlement
+------------------------------
+Attempt 1: Immediate
+  - Call price API
+  - If success: continue
+  - If failure: schedule retry in 5 minutes
+
+Attempt 2: After 5 minutes
+  - Retry settlement
+  - If success: continue
+  - If failure: schedule retry in 15 minutes
+
+Attempt 3: After 15 minutes
+  - Retry settlement
+  - If success: continue
+  - If failure: schedule retry in 45 minutes
+
+Attempt 4: After 45 minutes (final)
+  - Retry settlement
+  - If success: continue
+  - If failure: FORCE SETTLEMENT
+
+Retry Implementation:
+  - Use Pub/Sub with scheduled delivery
+  - Message contains: { matchId, retryCount }
+  - Check retryCount on receipt
+
+2.4 Forced Settlement
+---------------------
+Trigger: forceSettlement function (hourly) or 4th retry failure
+
+Steps:
+  1. Query matches where status = SETTLING AND settlingAt < now - 3 hours
+  2. For each stuck match:
+     a. Attempt price fetch one more time
+     b. If still failing, use most recent available prices
+        - Query priceSnapshots for each symbol
+        - Use latest available date
+     c. Set match.dataQualityFlag = "STALE_PRICES"
+     d. Complete settlement with available data
+     e. Log forced settlement to auditLog
+     f. Alert operations team
+
+2.5 Timing Constraints
+----------------------
+- Function timeout: 540 seconds
+- Expected execution: 60-300 seconds (depending on player count)
+- Maximum settlement window: 3 hours
+- After 3 hours: forced settlement kicks in
+
+3. SCHEDULER TTL AND CONFIGURATION
+----------------------------------
+
+3.1 Scheduler Jobs
+------------------
+
+Job: processMatchStarts
+  Schedule: */15 * * * * (every 15 minutes)
+  Timezone: America/New_York
+  Target: Pub/Sub topic "process-match-starts"
+  Retry: 3 times with exponential backoff
+  TTL: 10 minutes (message expires if not processed)
+
+Job: processMatchEnds
+  Schedule: */15 * * * * (every 15 minutes)
+  Timezone: America/New_York
+  Target: Pub/Sub topic "process-match-ends"
+  Retry: 3 times with exponential backoff
+  TTL: 10 minutes
+
+Job: forceSettlement
+  Schedule: 0 * * * * (every hour)
+  Timezone: America/New_York
+  Target: Pub/Sub topic "force-settlement"
+  Retry: 2 times
+  TTL: 30 minutes
+
+Job: refreshSymbolCache
+  Schedule: 0 6 * * * (daily at 6 AM ET)
+  Timezone: America/New_York
+  Target: Pub/Sub topic "refresh-symbols"
+  Retry: 3 times with 5 minute intervals
+  TTL: 1 hour
+
+3.2 Pub/Sub Topics
+------------------
+
+Topic: process-match-starts
+  Subscribers: processMatchStarts function
+  Ack deadline: 60 seconds
+  Retention: 7 days
+
+Topic: match-start
+  Subscribers: startMatch function
+  Ack deadline: 600 seconds
+  Retention: 7 days
+
+Topic: process-match-ends
+  Subscribers: processMatchEnds function
+  Ack deadline: 60 seconds
+  Retention: 7 days
+
+Topic: match-end
+  Subscribers: endMatch function
+  Ack deadline: 60 seconds
+  Retention: 7 days
+
+Topic: match-settle
+  Subscribers: settleMatch function
+  Ack deadline: 600 seconds
+  Retention: 7 days
+
+Topic: force-settlement
+  Subscribers: forceSettlement function
+  Ack deadline: 600 seconds
+  Retention: 7 days
+
+4. STATE MACHINE SUMMARY
+------------------------
+
+DRAFT --[publish]--> OPEN
+OPEN --[start, >=2 players]--> LIVE
+OPEN --[start, <2 players]--> CANCELLED
+OPEN --[creator cancel]--> CANCELLED
+LIVE --[end time]--> SETTLING
+SETTLING --[settle success]--> FINISHED
+SETTLING --[forced after 3h]--> FINISHED
+
+Valid State Transitions:
+  DRAFT -> OPEN
+  DRAFT -> CANCELLED
+  OPEN -> LIVE
+  OPEN -> CANCELLED
+  LIVE -> SETTLING
+  SETTLING -> FINISHED
+
+Invalid Transitions (rejected):
+  FINISHED -> any
+  CANCELLED -> any
+  SETTLING -> CANCELLED
+  LIVE -> CANCELLED
+  LIVE -> OPEN (no going back)
+
+================================================================================
+END OF WORKFLOW SEQUENCES
+================================================================================

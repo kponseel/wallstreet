@@ -1,0 +1,368 @@
+================================================================================
+BATCH 4 — BACKEND LOGIC & CLOUD FUNCTIONS
+Wall Street Fantasy League MVP — Settlement & Leaderboard Algorithms
+================================================================================
+
+1. SETTLEMENT ALGORITHM
+-----------------------
+
+1.1 Main Settlement Function
+----------------------------
+Function: settleMatch(matchId, retryCount)
+
+Input:
+  - matchId: string
+  - retryCount: number (0-3)
+
+Output:
+  - success: boolean
+  - results: Array of Result documents (if success)
+  - error: string (if failure)
+
+Algorithm:
+  Step 1: Load match document from Firestore
+  Step 2: Verify match.status equals "SETTLING"
+  Step 3: If status is "FINISHED", return early (idempotent)
+  Step 4: Load all portfolios for matchId
+  Step 5: Extract unique symbols from all portfolios
+  Step 6: Load start prices from priceSnapshots collection
+  Step 7: Fetch end prices (call fetchEndPrices)
+  Step 8: If end price fetch failed
+    Step 8a: If retryCount less than 3
+      - Schedule retry with retryCount + 1
+      - Return { success: false, retryScheduled: true }
+    Step 8b: If retryCount equals 3 or more
+      - Call fallbackPrices to get best available
+      - Set dataQualityFlag to "STALE_PRICES"
+  Step 9: For each portfolio, call calculatePortfolioResult
+  Step 10: Call rankResults to assign rankings
+  Step 11: Call writeResults to persist to Firestore
+  Step 12: Call writeLeaderboard to persist denormalized data
+  Step 13: Call updateUserStats for each participant
+  Step 14: Update match status to "FINISHED"
+  Step 15: Write audit log entry
+  Step 16: Return { success: true, results: resultsList }
+
+1.2 Calculate Portfolio Result
+------------------------------
+Function: calculatePortfolioResult(portfolio, startPrices, endPrices)
+
+Input:
+  - portfolio: Portfolio document
+  - startPrices: Map of symbol to price (cents)
+  - endPrices: Map of symbol to price (cents)
+
+Output:
+  - Result document (not yet persisted)
+
+Algorithm:
+  Step 1: Initialize positionResults as empty array
+  Step 2: Initialize totalWeightedReturn as 0
+  Step 3: For each position in portfolio.positions
+    Step 3a: Get symbol and exchange from position
+    Step 3b: Get startPrice from startPrices map using symbol
+    Step 3c: Get endPrice from endPrices map using symbol
+    Step 3d: Calculate returnPercent
+             returnPercent = ((endPrice - startPrice) / startPrice) * 100
+    Step 3e: Calculate weightedContribution
+             weightedContribution = (position.allocationPercent / 100) * returnPercent
+    Step 3f: Add weightedContribution to totalWeightedReturn
+    Step 3g: Create positionResult object with:
+             symbol, exchange, allocationCents, allocationPercent,
+             startPriceCents, endPriceCents, returnPercent, weightedContribution
+    Step 3h: Append positionResult to positionResults array
+  Step 4: Set portfolioReturnPercent to totalWeightedReturn
+  Step 5: Calculate endValueCents
+          endValueCents = 1000000 * (1 + portfolioReturnPercent / 100)
+          Round to nearest integer
+  Step 6: Create Result object with:
+          resultId = matchId + "_" + userId
+          matchId = portfolio.matchId
+          userId = portfolio.userId
+          userDisplayName = portfolio.userDisplayName
+          portfolioId = portfolio.portfolioId
+          positionResults = positionResults
+          portfolioReturnPercent = round to 6 decimal places
+          startValueCents = 1000000
+          endValueCents = endValueCents
+          rank = 0 (placeholder, assigned later)
+          totalParticipants = 0 (placeholder)
+          submittedAt = portfolio.submittedAt
+          calculatedAt = current timestamp
+          dataQualityFlags = empty array (or add flags if stale)
+  Step 7: Return Result object
+
+1.3 Fetch End Prices
+--------------------
+Function: fetchEndPrices(symbols, endDate)
+
+Input:
+  - symbols: Array of {symbol, exchange}
+  - endDate: Date string (YYYY-MM-DD)
+
+Output:
+  - prices: Map of symbol to price (cents)
+  - failures: Array of failed symbols
+
+Algorithm:
+  Step 1: Initialize prices as empty map
+  Step 2: Initialize failures as empty array
+  Step 3: Check if prices already exist in priceSnapshots
+    Step 3a: For each symbol, query priceSnapshots with symbol and endDate
+    Step 3b: If found, add to prices map
+    Step 3c: If not found, add to symbolsToFetch list
+  Step 4: If symbolsToFetch is empty, return { prices, failures: [] }
+  Step 5: Call external price API with symbolsToFetch
+  Step 6: For each API response
+    Step 6a: If successful
+      - Create priceSnapshot document
+      - Write to Firestore
+      - Add to prices map
+    Step 6b: If failed
+      - Add to failures array
+  Step 7: Return { prices, failures }
+
+1.4 Fallback Prices
+-------------------
+Function: fallbackPrices(symbols, targetDate)
+
+Input:
+  - symbols: Array of {symbol, exchange}
+  - targetDate: Date string (YYYY-MM-DD)
+
+Output:
+  - prices: Map of symbol to price (cents)
+  - staleness: Map of symbol to days stale
+
+Algorithm:
+  Step 1: Initialize prices as empty map
+  Step 2: Initialize staleness as empty map
+  Step 3: For each symbol in symbols
+    Step 3a: Query priceSnapshots where symbol equals symbol
+             Order by date descending, limit 1
+    Step 3b: If found
+      - Add price to prices map
+      - Calculate days between found date and targetDate
+      - Add to staleness map
+    Step 3c: If not found
+      - Log error: no historical price for symbol
+      - Use default price of 0 (will affect return calc)
+      - Add maximum staleness indicator
+  Step 4: Return { prices, staleness }
+
+2. RANKING ALGORITHM
+--------------------
+
+2.1 Main Ranking Function
+-------------------------
+Function: rankResults(results)
+
+Input:
+  - results: Array of Result objects (unranked)
+
+Output:
+  - results: Array of Result objects (with rank assigned)
+
+Algorithm:
+  Step 1: Sort results array using sortKey function
+          Primary: portfolioReturnPercent descending
+          Secondary: submittedAt ascending
+          Tertiary: userDisplayName ascending (case-insensitive)
+  Step 2: Set totalParticipants to results.length
+  Step 3: For index from 0 to results.length - 1
+    Step 3a: Set results[index].rank to index + 1
+    Step 3b: Set results[index].totalParticipants to totalParticipants
+  Step 4: Return results
+
+2.2 Sort Key Comparison
+-----------------------
+Function: compareResults(resultA, resultB)
+
+Algorithm:
+  Step 1: Compare portfolioReturnPercent
+          If A.portfolioReturnPercent > B.portfolioReturnPercent, return -1 (A first)
+          If A.portfolioReturnPercent < B.portfolioReturnPercent, return 1 (B first)
+  Step 2: If returns equal, compare submittedAt
+          If A.submittedAt < B.submittedAt, return -1 (A first, earlier wins)
+          If A.submittedAt > B.submittedAt, return 1 (B first)
+  Step 3: If submittedAt equal, compare displayName
+          Compare A.userDisplayName.toLowerCase() with B.userDisplayName.toLowerCase()
+          Return standard string comparison result
+  Step 4: If all equal, return 0 (maintain original order)
+
+2.3 Tie-Breaker Logic Explained
+-------------------------------
+Tie-Breaker 1: Portfolio Submission Time
+  - Earlier submission wins
+  - Rationale: Rewards decisive players
+  - Stored as: Firestore Timestamp with nanosecond precision
+
+Tie-Breaker 2: Alphabetical Username
+  - A before Z
+  - Case-insensitive comparison
+  - Rationale: Deterministic, predictable fallback
+  - Used only if submission times are identical (rare)
+
+3. LEADERBOARD GENERATION
+-------------------------
+
+3.1 Create Leaderboard Entries
+------------------------------
+Function: createLeaderboardEntries(results)
+
+Input:
+  - results: Array of ranked Result objects
+
+Output:
+  - entries: Array of LeaderboardEntry documents
+
+Algorithm:
+  Step 1: Initialize entries as empty array
+  Step 2: For each result in results
+    Step 2a: Find top performing position
+             Sort positionResults by returnPercent descending
+             Take first position as topHolding
+    Step 2b: Create LeaderboardEntry object with:
+             entryId = matchId + "_" + rank
+             matchId = result.matchId
+             rank = result.rank
+             userId = result.userId
+             userDisplayName = result.userDisplayName
+             userPhotoURL = (fetch from users collection)
+             portfolioReturnPercent = round to 2 decimal places
+             endValueCents = result.endValueCents
+             topHolding = topHolding.symbol
+             topHoldingReturn = round to 2 decimal places
+    Step 2c: Append entry to entries array
+  Step 3: Return entries
+
+3.2 Pagination Support
+----------------------
+Leaderboard entries are designed for efficient pagination:
+
+Query for page N (20 items per page):
+  Collection: leaderboard
+  Filter: matchId equals targetMatchId
+  Order: rank ascending
+  Start: (N - 1) * 20
+  Limit: 20
+
+Cursor-based pagination:
+  After loading page, store last document
+  Next page query uses startAfter(lastDocument)
+
+4. USER STATS UPDATE
+--------------------
+
+4.1 Update User Statistics
+--------------------------
+Function: updateUserStats(results)
+
+Input:
+  - results: Array of Result objects
+
+Algorithm:
+  Step 1: For each result in results
+    Step 1a: Load user document for result.userId
+    Step 1b: Calculate new stats
+             newMatchesPlayed = user.stats.matchesPlayed + 1
+             newMatchesWon = user.stats.matchesWon + (result.rank == 1 ? 1 : 0)
+             newTotalReturns = user.stats.totalReturns + result.portfolioReturnPercent
+             newBestReturn = max(user.stats.bestReturn, result.portfolioReturnPercent)
+             newAverageRank = calculateNewAverageRank(user, result.rank)
+    Step 1c: Update user document with new stats
+    Step 1d: Use transaction to ensure consistency
+
+4.2 Average Rank Calculation
+----------------------------
+Function: calculateNewAverageRank(user, newRank)
+
+Algorithm:
+  Step 1: Get oldAverage from user.stats.averageRank
+  Step 2: Get oldCount from user.stats.matchesPlayed
+  Step 3: If oldCount equals 0, return newRank
+  Step 4: Calculate new average
+          newAverage = ((oldAverage * oldCount) + newRank) / (oldCount + 1)
+  Step 5: Return newAverage rounded to 1 decimal place
+
+5. WRITE OPERATIONS
+-------------------
+
+5.1 Batch Write Results
+-----------------------
+Function: writeResults(results)
+
+Algorithm:
+  Step 1: Create Firestore batch
+  Step 2: For each result in results (up to 500 per batch)
+    Step 2a: Set document reference: results/{matchId}_{userId}
+    Step 2b: Add set operation to batch
+  Step 3: If results.length > 500
+    Step 3a: Split into multiple batches
+    Step 3b: Execute batches sequentially
+  Step 4: Commit batch
+  Step 5: Return success or error
+
+5.2 Batch Write Leaderboard
+---------------------------
+Function: writeLeaderboard(entries)
+
+Algorithm:
+  Step 1: Create Firestore batch
+  Step 2: For each entry in entries (up to 500 per batch)
+    Step 2a: Set document reference: leaderboard/{matchId}_{rank}
+    Step 2b: Add set operation to batch
+  Step 3: Handle batches > 500 as above
+  Step 4: Commit batch
+  Step 5: Return success or error
+
+5.3 Transaction for Match Finalization
+--------------------------------------
+Function: finalizeMatch(matchId, results)
+
+Algorithm:
+  Step 1: Run Firestore transaction
+  Step 2: Within transaction:
+    Step 2a: Read match document
+    Step 2b: Verify status is still SETTLING
+    Step 2c: Write all Result documents
+    Step 2d: Write all LeaderboardEntry documents
+    Step 2e: Update match status to FINISHED
+    Step 2f: Set finishedAt timestamp
+  Step 3: If transaction fails, retry up to 5 times
+  Step 4: Return success or error
+
+6. NUMERICAL PRECISION
+----------------------
+
+6.1 Price Handling
+------------------
+- Prices stored as integers in cents (100 = $1.00)
+- Calculations use floating point internally
+- Final prices rounded to nearest cent
+
+6.2 Return Calculation
+----------------------
+- Returns calculated as floating point
+- Internal precision: 6 decimal places
+- Display precision: 2 decimal places
+- Storage precision: 6 decimal places (for accurate ranking)
+
+6.3 Rounding Rules
+------------------
+- Use banker's rounding (round half to even)
+- Apply rounding only at final storage/display
+- Keep full precision during intermediate calculations
+
+Example:
+  startPrice = 15023 cents ($150.23)
+  endPrice = 15789 cents ($157.89)
+  returnPercent = ((15789 - 15023) / 15023) * 100
+  returnPercent = (766 / 15023) * 100
+  returnPercent = 5.098783...
+  Stored as: 5.098783
+  Displayed as: 5.10%
+
+================================================================================
+END OF SETTLEMENT & LEADERBOARD ALGORITHMS
+================================================================================

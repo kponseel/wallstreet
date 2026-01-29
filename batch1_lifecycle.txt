@@ -1,0 +1,163 @@
+================================================================================
+BATCH 1 — PRODUCT & GAME LOGIC
+Wall Street Fantasy League MVP — Match Lifecycle Specification
+================================================================================
+
+1. STATE DEFINITIONS
+--------------------
+
+State       | Description                                      | Duration
+------------|--------------------------------------------------|------------------
+DRAFT       | Match created but not yet published              | Until publish
+OPEN        | Match accepting players and portfolios           | Until start time
+LIVE        | Match in progress, portfolios locked             | Match duration
+SETTLING    | Match ended, calculating final scores            | < 5 minutes
+FINISHED    | Results finalized, leaderboard available         | Permanent
+CANCELLED   | Match cancelled (insufficient players or error)  | Permanent
+
+2. STATE TRANSITIONS
+--------------------
+
+From State  | To State   | Trigger                          | Actor/System
+------------|------------|----------------------------------|---------------
+(none)      | DRAFT      | User creates match               | User
+DRAFT       | OPEN       | User publishes match             | User
+DRAFT       | CANCELLED  | User deletes draft               | User
+OPEN        | LIVE       | Start time reached + prices OK   | Cloud Scheduler
+OPEN        | CANCELLED  | Start time + <2 players joined   | Cloud Scheduler
+OPEN        | CANCELLED  | Creator cancels before start     | User (creator)
+LIVE        | SETTLING   | End time reached                 | Cloud Scheduler
+SETTLING    | FINISHED   | Settlement complete              | Cloud Function
+SETTLING    | SETTLING   | Settlement retry (price fail)    | Cloud Function
+SETTLING    | FINISHED   | Settlement forced (after 3 hrs)  | Cloud Function
+
+3. DETAILED TRANSITION RULES
+----------------------------
+
+3.1 DRAFT → OPEN
+    Trigger: Creator clicks "Publish Match"
+    Validations:
+    - Match name is valid
+    - Start date is valid future trading day
+    - End date is valid trading day
+    - Duration is valid preset
+    Actions:
+    - Generate match code (if private)
+    - Set matchStatus = OPEN
+    - Record publishedAt timestamp
+
+3.2 OPEN → LIVE
+    Trigger: Cloud Scheduler job at match start time (16:00 ET on start date)
+    Validations:
+    - At least 2 players have submitted portfolios
+    - Start date EOD prices successfully fetched
+    Actions:
+    - Fetch and store start price snapshot for all symbols in all portfolios
+    - Lock all portfolios (set portfolioLocked = true)
+    - Calculate initial portfolio values
+    - Set matchStatus = LIVE
+    - Record liveAt timestamp
+
+3.3 OPEN → CANCELLED (Insufficient Players)
+    Trigger: Cloud Scheduler job at match start time
+    Condition: Fewer than 2 players have submitted portfolios
+    Actions:
+    - Set matchStatus = CANCELLED
+    - Set cancellationReason = "INSUFFICIENT_PLAYERS"
+    - No prices fetched or stored
+
+3.4 LIVE → SETTLING
+    Trigger: Cloud Scheduler job at match end time (16:00 ET on end date)
+    Actions:
+    - Fetch end date EOD prices for all symbols
+    - Set matchStatus = SETTLING
+    - Record settlingAt timestamp
+    - Trigger settlement Cloud Function
+
+3.5 SETTLING → FINISHED
+    Trigger: Settlement Cloud Function completes successfully
+    Actions:
+    - Calculate final returns for each position
+    - Calculate portfolio returns for each player
+    - Rank players by return
+    - Apply tie-breakers
+    - Write Result documents
+    - Update LeaderboardEntry documents
+    - Set matchStatus = FINISHED
+    - Record finishedAt timestamp
+
+3.6 SETTLING → SETTLING (Retry)
+    Trigger: Price fetch failure during settlement
+    Condition: Retry count < 3 AND elapsed time < 3 hours
+    Actions:
+    - Increment retryCount
+    - Wait exponential backoff (5min, 15min, 45min)
+    - Re-attempt price fetch
+    - Log retry event
+
+3.7 SETTLING → FINISHED (Forced)
+    Trigger: Elapsed time > 3 hours since settlingAt
+    Actions:
+    - Use last available prices (may be stale)
+    - Mark match with dataQualityFlag = "STALE_PRICES"
+    - Complete settlement with available data
+    - Set matchStatus = FINISHED
+    - Record finishedAt timestamp
+
+4. STATE TRANSITION DIAGRAM (ASCII)
+-----------------------------------
+
+    +-------+   publish   +------+   start time    +------+
+    | DRAFT |------------>| OPEN |---------------->| LIVE |
+    +-------+             +------+                 +------+
+        |                     |                        |
+        | delete              | cancel/<2 players      | end time
+        v                     v                        v
+    +-----------+        +-----------+           +----------+
+    | CANCELLED |<-------| CANCELLED |           | SETTLING |
+    +-----------+        +-----------+           +----------+
+                                                      |
+                                            success   |   forced
+                                            or retry  v
+                                                 +----------+
+                                                 | FINISHED |
+                                                 +----------+
+
+5. TIMING CONSTRAINTS
+---------------------
+
+Event                        | Constraint
+-----------------------------|------------------------------------------
+Match creation to start      | Minimum 24 hours, maximum 30 days
+Entry deadline               | Equals match start time
+Start time                   | 16:00 ET on start date
+End time                     | 16:00 ET on end date
+Settlement window            | Maximum 3 hours after end time
+Price snapshot tolerance     | Accept prices from 15:30-16:30 ET
+
+6. SCHEDULER JOBS
+-----------------
+
+Job Name                | Schedule              | Purpose
+------------------------|----------------------|---------------------------
+matchStartProcessor     | Every 15 min         | Process OPEN→LIVE transitions
+matchEndProcessor       | Every 15 min         | Process LIVE→SETTLING
+settlementRetry         | Every 30 min         | Retry failed settlements
+stalePriceForcer        | Hourly               | Force complete stale matches
+
+7. EDGE CASE HANDLING
+---------------------
+
+Scenario                          | Resolution
+----------------------------------|------------------------------------------
+Market holiday on start date      | Match cannot be created with this date
+Market holiday on end date        | Match cannot be created with this date
+Player joins at exact deadline    | Accept if timestamp ≤ deadline
+Price API down at start           | Retry 3x, then delay start by 1 day
+Price API down at end             | Retry 3x over 3 hours, then use stale
+Player deletes account mid-match  | Portfolio remains, marked as [deleted]
+Symbol delisted during match      | Use last traded price as end price
+
+================================================================================
+END OF MATCH LIFECYCLE SPECIFICATION
+================================================================================

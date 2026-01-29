@@ -1,0 +1,322 @@
+================================================================================
+BATCH 1 — PRODUCT & GAME LOGIC
+Wall Street Fantasy League MVP — Edge Cases & Resolution Policy
+================================================================================
+
+1. PRICE DATA EDGE CASES
+------------------------
+
+EC-1.1: Missing Start Price
+---------------------------------------------------------------------------
+Scenario:    EOD price unavailable for a symbol on match start date
+Cause:       API failure, symbol not traded, data feed gap
+Detection:   Price fetch returns null/404 for symbol
+Resolution:
+  1. Retry price fetch 3 times with exponential backoff (5s, 15s, 45s)
+  2. If still missing, check alternate data source
+  3. If all sources fail, delay match start by 1 trading day
+  4. Notify all participants of delay via in-app notification
+Policy:      Match will NOT start with incomplete price data
+
+EC-1.2: Missing End Price
+---------------------------------------------------------------------------
+Scenario:    EOD price unavailable for a symbol on match end date
+Cause:       API failure, symbol halted, data feed gap
+Detection:   Price fetch returns null/404 for symbol
+Resolution:
+  1. Retry price fetch 3 times with 15-minute intervals
+  2. If still missing after 1 hour, use previous trading day's close
+  3. If still missing after 3 hours, force settlement with last known price
+  4. Flag affected portfolios with dataQualityFlag = "ESTIMATED_PRICE"
+Policy:      Settlement proceeds with best available data after 3 hours
+
+EC-1.3: Price API Complete Outage
+---------------------------------------------------------------------------
+Scenario:    Primary price API returns errors for all requests
+Cause:       Provider outage, rate limiting, authentication failure
+Detection:   >50% of price requests fail within 5-minute window
+Resolution:
+  1. Switch to backup price provider (if configured)
+  2. If no backup, enter degraded mode
+  3. Queue affected matches for delayed processing
+  4. Retry every 30 minutes for up to 6 hours
+  5. After 6 hours, use most recent cached prices with staleness flag
+Policy:      System remains operational with degraded data quality
+
+EC-1.4: Stale Price Data
+---------------------------------------------------------------------------
+Scenario:    Price data timestamp older than expected
+Cause:       Data provider delay, caching issues
+Detection:   Price timestamp >30 minutes behind market close
+Resolution:
+  1. Log warning and continue if staleness <2 hours
+  2. If staleness >2 hours, trigger re-fetch
+  3. If re-fetch still stale, accept with dataQualityFlag = "STALE"
+Policy:      Accept prices up to 24 hours old for settlement continuity
+
+EC-1.5: Price Spike/Anomaly
+---------------------------------------------------------------------------
+Scenario:    Price change >50% in single day (potential bad data)
+Cause:       Data error, stock split not adjusted, corporate action
+Detection:   abs(price change) > 50% compared to previous close
+Resolution:
+  1. Cross-reference with alternate data source
+  2. Check for corporate actions (split, merger)
+  3. If confirmed valid, accept price
+  4. If suspected error, flag for manual review
+  5. Delay settlement for flagged symbols by 24 hours
+Policy:      Large moves require validation before settlement
+
+2. MARKET CALENDAR EDGE CASES
+-----------------------------
+
+EC-2.1: Match Start on Market Holiday
+---------------------------------------------------------------------------
+Scenario:    User attempts to create match starting on US market holiday
+Cause:       User unaware of holiday schedule
+Detection:   Start date validation against holiday calendar
+Resolution:
+  1. Reject match creation with clear error message
+  2. Suggest next valid trading day
+  3. Display holiday calendar in match creation UI
+Policy:      Matches cannot start or end on market holidays
+
+EC-2.2: Unexpected Market Closure
+---------------------------------------------------------------------------
+Scenario:    Market closes unexpectedly (emergency, weather, national event)
+Cause:       Unscheduled market closure
+Detection:   No price data available for expected trading day
+Resolution:
+  1. Detect via absence of expected EOD data by 18:00 ET
+  2. Automatically extend match by 1 trading day
+  3. Notify all participants of extension
+  4. Update match end date in database
+Policy:      Matches auto-extend for unscheduled closures
+
+EC-2.3: Early Market Close
+---------------------------------------------------------------------------
+Scenario:    Market closes early (pre-holiday, special circumstances)
+Cause:       Scheduled early close (e.g., day before Thanksgiving)
+Detection:   EOD data arrives with earlier timestamp
+Resolution:
+  1. Accept early close price as valid EOD price
+  2. No special handling required
+  3. Price timestamp will reflect actual close time
+Policy:      Early closes use actual closing price at early time
+
+EC-2.4: Weekend Date Selection
+---------------------------------------------------------------------------
+Scenario:    User selects Saturday or Sunday as start/end date
+Cause:       UI allows weekend selection
+Detection:   Day-of-week validation on date fields
+Resolution:
+  1. Reject invalid date selection
+  2. Auto-suggest next valid trading day
+  3. Calendar picker should gray out weekends
+Policy:      Weekends are never valid for match boundaries
+
+3. PORTFOLIO SUBMISSION EDGE CASES
+----------------------------------
+
+EC-3.1: Submission at Exact Deadline
+---------------------------------------------------------------------------
+Scenario:    Player submits portfolio at timestamp equal to deadline
+Cause:       Last-second submission
+Detection:   submittedAt == entryDeadline
+Resolution:
+  1. Accept submission (deadline is inclusive)
+  2. Use server timestamp, not client timestamp
+  3. Log for audit purposes
+Policy:      Submissions at exactly deadline are ACCEPTED
+
+EC-3.2: Submission After Deadline
+---------------------------------------------------------------------------
+Scenario:    Player attempts submission after deadline passed
+Cause:       Network delay, slow client, intentional late attempt
+Detection:   Server timestamp > entryDeadline
+Resolution:
+  1. Reject submission with clear error
+  2. Do not save partial portfolio
+  3. Show countdown timer on client with buffer
+Policy:      Late submissions are ALWAYS rejected, no exceptions
+
+EC-3.3: Duplicate Portfolio Submission
+---------------------------------------------------------------------------
+Scenario:    Player submits portfolio twice before deadline
+Cause:       User error, network retry, race condition
+Detection:   Existing portfolio document for user+match combination
+Resolution:
+  1. Second submission REPLACES first (if before deadline)
+  2. Maintain only latest submission
+  3. Update submittedAt timestamp
+Policy:      Last valid submission before deadline wins
+
+EC-3.4: Partial Portfolio Submission
+---------------------------------------------------------------------------
+Scenario:    Player submits portfolio with <5 positions or ≠$10,000
+Cause:       UI bug, API manipulation, incomplete data
+Detection:   Server-side validation on portfolio structure
+Resolution:
+  1. Reject with specific validation error
+  2. Return which constraint failed
+  3. Do not save invalid portfolio
+Policy:      Portfolios must meet ALL composition rules
+
+EC-3.5: Invalid Symbol in Portfolio
+---------------------------------------------------------------------------
+Scenario:    Player includes symbol that doesn't exist or isn't eligible
+Cause:       Typo, delisted stock, restricted security
+Detection:   Symbol validation against eligible securities list
+Resolution:
+  1. Reject portfolio submission
+  2. Identify invalid symbol(s) in error response
+  3. Provide suggestion for similar valid symbols
+Policy:      All symbols must be validated before acceptance
+
+4. USER ACCOUNT EDGE CASES
+--------------------------
+
+EC-4.1: User Deletes Account Mid-Match
+---------------------------------------------------------------------------
+Scenario:    Player deletes account while participating in active match
+Cause:       User requests account deletion
+Detection:   Account deletion request with active match participation
+Resolution:
+  1. Warn user about active match participation
+  2. If confirmed, mark user as [deleted user] in match
+  3. Portfolio remains and is scored normally
+  4. Display name shows as "[Deleted User]"
+  5. Results preserved for other participants
+Policy:      Account deletion doesn't void match participation
+
+EC-4.2: Duplicate Account Detection
+---------------------------------------------------------------------------
+Scenario:    Same person creates multiple accounts to join same match
+Cause:       Attempting to game the system
+Detection:   Device fingerprinting, IP correlation, behavioral analysis
+Resolution:
+  1. Flag suspicious accounts for review
+  2. If confirmed duplicate in same match, disqualify later entries
+  3. Preserve first entry only
+  4. Log incident for anti-abuse tracking
+Policy:      One account per person, one portfolio per match
+
+EC-4.3: Email Change During Match
+---------------------------------------------------------------------------
+Scenario:    User changes email address while in active match
+Cause:       Normal account maintenance
+Detection:   Email update request
+Resolution:
+  1. Allow email change
+  2. No impact on match participation
+  3. Notifications sent to new email
+Policy:      Email changes don't affect match status
+
+5. MATCH MANAGEMENT EDGE CASES
+------------------------------
+
+EC-5.1: Creator Leaves Own Match
+---------------------------------------------------------------------------
+Scenario:    Match creator withdraws from match they created
+Cause:       Changed mind, scheduling conflict
+Detection:   Leave request from userId == creatorId
+Resolution:
+  1. Allow creator to leave
+  2. Match continues if ≥2 other players
+  3. Creator role doesn't transfer (match has no owner)
+  4. Creator can rejoin if before deadline
+Policy:      Creators are regular participants, no special privileges
+
+EC-5.2: All Players Leave Before Start
+---------------------------------------------------------------------------
+Scenario:    Every player withdraws from match before start time
+Cause:       Collective disinterest
+Detection:   Player count drops to 0 before entryDeadline
+Resolution:
+  1. Auto-cancel match at start time
+  2. Set status = CANCELLED, reason = "NO_PARTICIPANTS"
+Policy:      Matches with 0 players are cancelled
+
+EC-5.3: Match Code Collision
+---------------------------------------------------------------------------
+Scenario:    Generated match code already exists
+Cause:       Random collision (very rare with 6-char alphanumeric)
+Detection:   Uniqueness check on code generation
+Resolution:
+  1. Regenerate code (up to 10 attempts)
+  2. After 10 failures, use longer code (8 characters)
+  3. Log anomaly for investigation
+Policy:      Match codes must be unique
+
+EC-5.4: Creator Cancels Match with Participants
+---------------------------------------------------------------------------
+Scenario:    Creator cancels match after others have joined
+Cause:       Creator changes mind
+Detection:   Cancel request when participantCount > 1
+Resolution:
+  1. Allow cancellation only in OPEN state
+  2. Notify all participants of cancellation
+  3. Participants' portfolios are deleted
+  4. Match status = CANCELLED, reason = "CREATOR_CANCELLED"
+Policy:      Creators can cancel OPEN matches (not LIVE or later)
+
+6. SYMBOL/SECURITY EDGE CASES
+-----------------------------
+
+EC-6.1: Stock Delisted During Match
+---------------------------------------------------------------------------
+Scenario:    Company is delisted while match is in progress
+Cause:       Bankruptcy, merger, going private
+Detection:   Symbol returns no price data on end date
+Resolution:
+  1. Use last traded price as end price
+  2. Flag position with dataQualityFlag = "DELISTED"
+  3. Calculate return normally with last price
+Policy:      Delisted stocks use last traded price
+
+EC-6.2: Stock Split During Match
+---------------------------------------------------------------------------
+Scenario:    Stock undergoes split (2:1, 3:1, etc.) during match
+Cause:       Corporate action
+Detection:   Price provider returns split-adjusted prices
+Resolution:
+  1. Use split-adjusted prices for both start and end
+  2. Return calculation remains valid
+  3. No manual intervention required
+Policy:      All prices are split-adjusted automatically
+
+EC-6.3: Ticker Symbol Change
+---------------------------------------------------------------------------
+Scenario:    Company changes ticker symbol during match
+Cause:       Rebranding, merger
+Detection:   Original symbol returns "symbol changed" response
+Resolution:
+  1. Map old symbol to new symbol automatically
+  2. Use new symbol for price lookup
+  3. Preserve original symbol in portfolio for display
+Policy:      Symbol changes are handled transparently
+
+EC-6.4: Symbol Ambiguity
+---------------------------------------------------------------------------
+Scenario:    Multiple securities share similar symbols
+Cause:       Cross-exchange listings, similar names
+Detection:   Symbol search returns multiple results
+Resolution:
+  1. Always require explicit exchange selection
+  2. Store symbol + exchange pair (e.g., "AAPL:NASDAQ")
+  3. Display full identifier to user
+Policy:      Symbols must be unambiguous with exchange
+
+7. SEVERITY CLASSIFICATION
+--------------------------
+
+Severity | Description                    | Examples
+---------|--------------------------------|---------------------------
+CRITICAL | Blocks core functionality      | EC-1.1, EC-1.2, EC-3.4
+HIGH     | Degrades user experience       | EC-1.3, EC-2.2, EC-5.4
+MEDIUM   | Edge case with workaround      | EC-1.4, EC-4.1, EC-6.1
+LOW      | Cosmetic or rare occurrence    | EC-2.3, EC-5.3, EC-4.3
+
+================================================================================
+END OF EDGE CASES & RESOLUTION POLICY
+================================================================================

@@ -1,0 +1,399 @@
+================================================================================
+BATCH 4 — BACKEND LOGIC & CLOUD FUNCTIONS
+Wall Street Fantasy League MVP — Error Handling & Idempotency Strategy
+================================================================================
+
+1. ERROR HANDLING PHILOSOPHY
+----------------------------
+
+Core Principles:
+- Fail fast, recover gracefully
+- Never lose user data
+- Prefer idempotent retries over complex rollback
+- Log everything for debugging
+- Alert on critical failures
+
+Error Categories:
+- TRANSIENT: Network, timeout, rate limits (retry)
+- PERMANENT: Invalid data, business rule violation (fail with message)
+- SYSTEM: Unexpected errors, bugs (log, alert, fail safely)
+
+2. TRANSIENT ERROR HANDLING
+---------------------------
+
+2.1 External API Errors (Price Data)
+------------------------------------
+Error Type: API timeout, 5xx errors, rate limits
+
+Strategy: Exponential backoff with jitter
+
+Retry Schedule:
+  Attempt 1: Immediate
+  Attempt 2: 5 seconds + random(0-1s)
+  Attempt 3: 15 seconds + random(0-3s)
+  Attempt 4: 45 seconds + random(0-5s)
+  Attempt 5: (final) 120 seconds + random(0-10s)
+
+Max Retries: 5 for non-critical, 3 for time-sensitive
+
+Implementation:
+  Function: retryWithBackoff(operation, maxRetries)
+
+  Step 1: Set attempt to 1
+  Step 2: While attempt less than or equal to maxRetries
+    Step 2a: Try operation
+    Step 2b: If success, return result
+    Step 2c: If transient error
+      - Calculate delay: baseDelay * 2^(attempt-1) + random jitter
+      - Wait for delay
+      - Increment attempt
+    Step 2d: If permanent error, throw immediately
+  Step 3: After max retries exhausted, throw final error
+
+2.2 Firestore Errors
+--------------------
+Error Type: UNAVAILABLE, DEADLINE_EXCEEDED, RESOURCE_EXHAUSTED
+
+Strategy: Built-in Firestore retry + custom backoff
+
+Retry Schedule:
+  - Firestore SDK handles automatic retries for reads
+  - Custom retry for writes with transactions
+
+Transaction Retry:
+  Max attempts: 5 (Firestore default)
+  Backoff: Exponential, managed by SDK
+
+Custom Write Retry:
+  Attempt 1: Immediate
+  Attempt 2: 1 second
+  Attempt 3: 2 seconds
+  Attempt 4: 4 seconds (final)
+
+2.3 Network Errors
+------------------
+Error Type: Connection refused, DNS failure, socket timeout
+
+Strategy: Retry with longer delays
+
+Retry Schedule:
+  Attempt 1: 2 seconds
+  Attempt 2: 5 seconds
+  Attempt 3: 10 seconds
+
+After 3 failures: Mark operation as failed, schedule for later retry
+
+3. PERMANENT ERROR HANDLING
+---------------------------
+
+3.1 Validation Errors
+---------------------
+Error Type: Invalid input, business rule violation
+
+Response: Return structured error, do not retry
+
+Error Response Format:
+  {
+    error: true,
+    code: "VALIDATION_ERROR",
+    message: "Human-readable message",
+    details: {
+      field: "fieldName",
+      reason: "specific_reason",
+      value: "provided_value"
+    }
+  }
+
+Common Validation Errors:
+  - INVALID_PORTFOLIO: Portfolio doesn't meet rules
+  - INVALID_SYMBOL: Symbol not eligible
+  - MATCH_NOT_OPEN: Match not accepting participants
+  - DEADLINE_PASSED: Entry deadline exceeded
+  - ALREADY_JOINED: User already in match
+  - MAX_PLAYERS: Match is full
+  - EMAIL_NOT_VERIFIED: User email not verified
+
+3.2 Business Logic Errors
+-------------------------
+Error Type: State machine violation, unauthorized action
+
+Response: Return error with explanation, log for review
+
+Examples:
+  - Attempting to modify locked portfolio
+  - Trying to leave match after lock
+  - Creating match on holiday
+  - Exceeding match creation limit
+
+3.3 Data Integrity Errors
+-------------------------
+Error Type: Inconsistent state, missing references
+
+Response: Log critical error, alert operations, fail safely
+
+Examples:
+  - Portfolio references non-existent match
+  - Result references non-existent portfolio
+  - Price snapshot missing for settlement
+
+Handling:
+  Step 1: Log full error context
+  Step 2: Alert operations team immediately
+  Step 3: Return generic error to user
+  Step 4: Mark affected records for manual review
+
+4. IDEMPOTENCY STRATEGIES
+-------------------------
+
+4.1 Idempotency Key Approach
+----------------------------
+Used for: User-initiated operations (createMatch, submitPortfolio)
+
+Implementation:
+  - Client generates unique idempotency key (UUID)
+  - Server caches key with result for 24 hours
+  - On retry, return cached result instead of re-executing
+
+Cache Structure:
+  Collection: idempotencyCache
+  Document ID: {functionName}_{idempotencyKey}
+  Fields:
+    - createdAt: timestamp
+    - result: stored response
+    - expiresAt: createdAt + 24 hours
+
+Algorithm:
+  Step 1: Check if idempotency key exists in cache
+  Step 2: If exists and not expired, return cached result
+  Step 3: If not exists, execute operation
+  Step 4: Store result in cache with idempotency key
+  Step 5: Return result
+
+4.2 State-Based Idempotency
+---------------------------
+Used for: System operations (startMatch, settleMatch)
+
+Implementation:
+  - Check current state before operation
+  - Only proceed if state is expected
+  - State transition is atomic
+
+Example - startMatch:
+  Step 1: Read match.status
+  Step 2: If status equals "LIVE" or "FINISHED", return success (already done)
+  Step 3: If status not equals "OPEN", return error (invalid state)
+  Step 4: Proceed with start operation
+  Step 5: Update status to "LIVE" atomically
+
+Example - settleMatch:
+  Step 1: Read match.status
+  Step 2: If status equals "FINISHED", return success (already done)
+  Step 3: If status not equals "SETTLING", return error
+  Step 4: Proceed with settlement
+  Step 5: Update status to "FINISHED" atomically
+
+4.3 Document ID Idempotency
+---------------------------
+Used for: Creating unique records (portfolio per user per match)
+
+Implementation:
+  - Use deterministic document IDs
+  - Firestore naturally prevents duplicates
+  - Set operation is idempotent
+
+Examples:
+  - Portfolio ID: portfolios/{matchId}_{userId}
+  - Result ID: results/{matchId}_{userId}
+  - Participant ID: matchParticipants/{matchId}_{userId}
+  - Price Snapshot ID: priceSnapshots/{date}_{symbol}_{exchange}
+
+Algorithm:
+  Step 1: Generate deterministic ID from input
+  Step 2: Use set() instead of add()
+  Step 3: If document exists, set() overwrites (same data = no change)
+  Step 4: No duplicate created, operation is idempotent
+
+4.4 Transaction-Based Idempotency
+---------------------------------
+Used for: Multi-document operations (settlement)
+
+Implementation:
+  - Wrap related writes in transaction
+  - Include idempotency check in transaction
+  - Either all writes succeed or none
+
+Settlement Transaction:
+  Step 1: Begin transaction
+  Step 2: Read match document
+  Step 3: If match.status equals "FINISHED", abort (already settled)
+  Step 4: Write all Result documents
+  Step 5: Write all LeaderboardEntry documents
+  Step 6: Update match.status to "FINISHED"
+  Step 7: Commit transaction
+
+If transaction fails:
+  - Firestore automatically retries
+  - On next run, check catches "FINISHED" state
+  - No duplicate results created
+
+5. ERROR RECOVERY PROCEDURES
+----------------------------
+
+5.1 Failed Match Start Recovery
+-------------------------------
+Scenario: Match should have started but didn't
+
+Detection:
+  - Query: matches where status="OPEN" AND startDate < now - 1 hour
+  - Alert if any matches found
+
+Recovery Steps:
+  Step 1: Check why match didn't start (review logs)
+  Step 2: If price API failure
+    - Retry price fetch manually
+    - If successful, trigger startMatch
+    - If still failing, delay match by 1 day
+  Step 3: If system error
+    - Fix underlying issue
+    - Trigger startMatch manually
+  Step 4: Notify affected participants
+
+5.2 Failed Settlement Recovery
+------------------------------
+Scenario: Match should have settled but didn't
+
+Detection:
+  - Query: matches where status="SETTLING" AND settlingAt < now - 3 hours
+  - Automatic forceSettlement job runs hourly
+
+Recovery Steps:
+  Step 1: forceSettlement job triggers automatically
+  Step 2: If prices still unavailable
+    - Use fallback prices (latest available)
+    - Set dataQualityFlag
+  Step 3: Complete settlement with available data
+  Step 4: Log incident for review
+  Step 5: Consider notifying participants of data quality
+
+5.3 Orphaned Document Recovery
+------------------------------
+Scenario: Inconsistent state (e.g., participant without portfolio)
+
+Detection:
+  - Weekly consistency check job
+  - Query for mismatched references
+
+Recovery Steps:
+  Step 1: Identify orphaned documents
+  Step 2: Determine correct state based on audit log
+  Step 3: Either delete orphan or create missing reference
+  Step 4: Log correction
+
+6. LOGGING AND MONITORING
+-------------------------
+
+6.1 Log Levels
+--------------
+DEBUG: Detailed execution flow (not in production)
+INFO: Normal operations, state changes
+WARN: Recoverable issues, retries
+ERROR: Failed operations, requires attention
+CRITICAL: System failures, immediate alert
+
+6.2 Required Log Fields
+-----------------------
+Every log entry must include:
+  - timestamp: ISO 8601 format
+  - level: DEBUG/INFO/WARN/ERROR/CRITICAL
+  - functionName: which Cloud Function
+  - requestId: unique ID for tracing
+  - userId: if user-initiated (null for system)
+  - matchId: if match-related (null otherwise)
+  - message: human-readable description
+  - context: relevant data (JSON)
+  - error: error details if applicable
+
+6.3 Alerting Rules
+------------------
+CRITICAL alerts (immediate, PagerDuty):
+  - Settlement failure after all retries
+  - Price API complete outage (>30 min)
+  - Authentication system failure
+  - Database connection failure
+
+ERROR alerts (Slack, email):
+  - Individual function failures
+  - Elevated error rates (>5% in 5 min)
+  - Price fetch failures
+
+WARN alerts (daily digest):
+  - Elevated retry rates
+  - Slow response times
+  - Approaching rate limits
+
+7. CIRCUIT BREAKER PATTERN
+--------------------------
+
+7.1 External API Circuit Breaker
+--------------------------------
+Used for: Price data API
+
+States:
+  - CLOSED: Normal operation
+  - OPEN: API failing, reject requests immediately
+  - HALF_OPEN: Testing if API recovered
+
+Thresholds:
+  - Failure threshold: 5 failures in 1 minute
+  - Open duration: 30 seconds
+  - Half-open probe: 1 request
+
+Algorithm:
+  Step 1: If state is OPEN
+    - Check if open duration elapsed
+    - If yes, transition to HALF_OPEN
+    - If no, reject request immediately
+  Step 2: If state is HALF_OPEN
+    - Allow single request through
+    - If success, transition to CLOSED
+    - If failure, transition to OPEN
+  Step 3: If state is CLOSED
+    - Execute request
+    - Track success/failure
+    - If failures exceed threshold, transition to OPEN
+
+7.2 Firestore Circuit Breaker
+-----------------------------
+Generally not needed (Firestore is highly available)
+Use only for specific failure patterns (quota exhaustion)
+
+8. GRACEFUL DEGRADATION
+-----------------------
+
+8.1 Price API Unavailable
+-------------------------
+Degraded State:
+  - Match starts/ends are delayed
+  - Settlement uses stale prices
+  - UI shows "Data may be delayed" warning
+
+User Impact:
+  - Matches may start up to 24 hours late
+  - Results may use yesterday's prices
+  - Clearly communicated to users
+
+8.2 Firestore Degraded
+----------------------
+Degraded State:
+  - Read-only mode for non-critical features
+  - Critical writes (portfolio submission) queued
+  - Leaderboard shows cached data
+
+User Impact:
+  - Cannot join new matches temporarily
+  - Can view existing data
+  - Queued actions processed when recovered
+
+================================================================================
+END OF ERROR HANDLING & IDEMPOTENCY STRATEGY
+================================================================================

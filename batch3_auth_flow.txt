@@ -1,0 +1,268 @@
+================================================================================
+BATCH 3 — AUTHENTICATION & SECURITY
+Wall Street Fantasy League MVP — Authentication Flow Document
+================================================================================
+
+1. AUTHENTICATION OVERVIEW
+--------------------------
+
+Provider: Firebase Authentication
+Supported Methods (MVP):
+  - Email/Password
+  - Google OAuth
+  - Apple Sign-In (iOS requirement)
+
+Session Management: Firebase Auth tokens (JWT)
+Token Lifetime: 1 hour (auto-refresh by SDK)
+
+2. SIGN-UP FLOW (Email/Password)
+--------------------------------
+
+2.1 User Actions
+----------------
+Step 1: User navigates to Sign Up screen
+Step 2: User enters email address
+Step 3: User enters password (min 8 chars, 1 uppercase, 1 number)
+Step 4: User enters display name (3-50 chars, alphanumeric + spaces)
+Step 5: User accepts Terms of Service and Privacy Policy
+Step 6: User taps "Create Account"
+
+2.2 System Actions
+------------------
+Step 1: Client validates all fields locally
+Step 2: Client calls Firebase Auth createUserWithEmailAndPassword()
+Step 3: Firebase creates auth account, returns UID
+Step 4: Client triggers Cloud Function: createUserProfile
+Step 5: Cloud Function creates user document in Firestore:
+        - uid, email, displayName, emailVerified=false
+        - createdAt, lastLoginAt = now
+        - status = ACTIVE
+        - stats = default values
+Step 6: Firebase sends verification email
+Step 7: Client redirects to "Verify Email" screen
+
+2.3 Email Verification
+----------------------
+Step 1: User receives email with verification link
+Step 2: User clicks link, Firebase marks emailVerified = true
+Step 3: On next app open, client checks emailVerified status
+Step 4: If verified, user gets full access
+Step 5: If not verified after 24 hours, send reminder email
+
+2.4 Verification Requirements
+-----------------------------
+- Users MUST verify email before:
+  - Creating matches
+  - Joining matches
+  - Submitting portfolios
+- Unverified users CAN:
+  - Browse match lobby (read-only)
+  - View leaderboards (read-only)
+  - Update their profile
+
+3. SIGN-IN FLOW (Email/Password)
+--------------------------------
+
+3.1 User Actions
+----------------
+Step 1: User navigates to Sign In screen
+Step 2: User enters email address
+Step 3: User enters password
+Step 4: User taps "Sign In"
+
+3.2 System Actions
+------------------
+Step 1: Client calls Firebase Auth signInWithEmailAndPassword()
+Step 2: Firebase validates credentials
+Step 3: If valid, Firebase returns auth token and user object
+Step 4: Client updates user document: lastLoginAt = now
+Step 5: Client redirects to Home screen
+Step 6: If invalid, display error message (generic for security)
+
+3.3 Error Handling
+------------------
+Error Code                    | User Message
+------------------------------|------------------------------------------
+auth/user-not-found           | "Invalid email or password"
+auth/wrong-password           | "Invalid email or password"
+auth/too-many-requests        | "Too many attempts. Try again later."
+auth/user-disabled            | "This account has been suspended."
+auth/network-request-failed   | "Network error. Check connection."
+
+4. SOCIAL LOGIN FLOW (Google)
+-----------------------------
+
+4.1 User Actions
+----------------
+Step 1: User taps "Continue with Google" button
+Step 2: Google OAuth popup/redirect appears
+Step 3: User selects Google account
+Step 4: User grants permissions (email, profile)
+Step 5: Redirect back to app
+
+4.2 System Actions
+------------------
+Step 1: Client initiates Google OAuth via Firebase
+Step 2: User authenticates with Google
+Step 3: Firebase receives OAuth token from Google
+Step 4: Firebase creates/links auth account
+Step 5: If new user:
+        - Cloud Function creates user profile
+        - Display name = Google display name
+        - Photo URL = Google profile photo
+        - emailVerified = true (Google verified)
+Step 6: If existing user:
+        - Update lastLoginAt
+        - Optionally update photoURL if changed
+Step 7: Client redirects to Home screen
+
+5. SOCIAL LOGIN FLOW (Apple)
+----------------------------
+
+5.1 User Actions
+----------------
+Step 1: User taps "Continue with Apple" button
+Step 2: Apple Sign-In sheet appears
+Step 3: User authenticates with Face ID/Touch ID/password
+Step 4: User chooses to share or hide email
+Step 5: Authentication completes
+
+5.2 System Actions
+------------------
+Step 1: Client initiates Apple Sign-In via Firebase
+Step 2: User authenticates with Apple
+Step 3: Firebase receives identity token from Apple
+Step 4: Firebase creates/links auth account
+Step 5: If new user:
+        - Cloud Function creates user profile
+        - If email hidden: use relay email
+        - Display name = Apple provided or prompt user
+        - emailVerified = true (Apple verified)
+Step 6: Client redirects to Home screen
+
+5.3 Apple-Specific Considerations
+---------------------------------
+- Apple only provides name/email on FIRST sign-in
+- Store name immediately, cannot retrieve later
+- Handle private relay emails correctly
+- Must offer Apple Sign-In if offering other social logins (App Store requirement)
+
+6. PASSWORD RESET FLOW
+----------------------
+
+6.1 User Actions
+----------------
+Step 1: User taps "Forgot Password?" link
+Step 2: User enters email address
+Step 3: User taps "Send Reset Link"
+Step 4: User checks email
+Step 5: User clicks reset link
+Step 6: User enters new password
+Step 7: User taps "Reset Password"
+
+6.2 System Actions
+------------------
+Step 1: Client calls Firebase Auth sendPasswordResetEmail()
+Step 2: Firebase sends reset email (if account exists)
+Step 3: Always show success message (don't reveal if email exists)
+Step 4: User clicks link, Firebase reset page loads
+Step 5: User submits new password
+Step 6: Firebase updates password
+Step 7: All existing sessions are invalidated
+Step 8: User must sign in with new password
+
+7. SESSION LIFECYCLE
+--------------------
+
+7.1 Token Management
+--------------------
+- Firebase Auth uses JWTs with 1-hour expiry
+- Firebase SDK auto-refreshes tokens before expiry
+- Refresh tokens valid for ~1 year (or until revoked)
+- Backend validates tokens on every request
+
+7.2 Session States
+------------------
+State         | Description                          | User Experience
+--------------|--------------------------------------|--------------------
+ACTIVE        | Valid token, user authenticated      | Full access
+EXPIRED       | Token expired, refresh available     | Auto-refresh, seamless
+REVOKED       | Refresh token invalid                | Force re-authentication
+SIGNED_OUT    | User explicitly signed out           | Show sign-in screen
+
+7.3 Session Termination Triggers
+--------------------------------
+- User signs out
+- Password changed
+- Account disabled by admin
+- Account deleted
+- Security incident (forced sign-out all)
+
+8. SIGN-OUT FLOW
+----------------
+
+8.1 User Actions
+----------------
+Step 1: User navigates to Settings/Profile
+Step 2: User taps "Sign Out"
+Step 3: Confirmation dialog appears
+Step 4: User confirms sign out
+
+8.2 System Actions
+------------------
+Step 1: Client calls Firebase Auth signOut()
+Step 2: Firebase invalidates local session
+Step 3: Client clears any cached user data
+Step 4: Client redirects to Sign In screen
+Step 5: Note: Server-side refresh token remains valid
+        (For true sign-out everywhere, use token revocation)
+
+9. ACCOUNT DELETION FLOW
+------------------------
+
+9.1 User Actions
+----------------
+Step 1: User navigates to Settings > Account > Delete Account
+Step 2: Warning displayed about data loss
+Step 3: User must re-authenticate (security check)
+Step 4: User types "DELETE" to confirm
+Step 5: User taps "Permanently Delete Account"
+
+9.2 System Actions
+------------------
+Step 1: Client re-authenticates user (recent login required)
+Step 2: Client calls Cloud Function: deleteUserAccount
+Step 3: Cloud Function:
+        - Marks user document status = "DELETED"
+        - Anonymizes display name to "[Deleted User]"
+        - Preserves match participation for other users
+        - Deletes portfolios in OPEN matches (not locked)
+        - Keeps results in FINISHED matches (historical)
+        - Schedules full data deletion after 30 days
+Step 4: Cloud Function calls Firebase Auth deleteUser()
+Step 5: Client redirects to Sign In with confirmation message
+
+10. RATE LIMITING
+-----------------
+
+Action                    | Limit                    | Window
+--------------------------|--------------------------|----------
+Sign-in attempts          | 5 failures               | 15 minutes
+Password reset requests   | 3 requests               | 1 hour
+Account creation          | 3 accounts               | 24 hours per IP
+Email verification resend | 3 requests               | 1 hour
+
+11. SECURITY INVARIANTS
+-----------------------
+
+INV-1: Email must be verified for write operations
+INV-2: Display names must be unique (case-insensitive)
+INV-3: Password minimum: 8 chars, 1 upper, 1 number
+INV-4: All auth state changes logged to auditLog
+INV-5: Re-authentication required for sensitive operations
+INV-6: Social login emails are pre-verified
+INV-7: Account lockout after repeated failures
+
+================================================================================
+END OF AUTHENTICATION FLOW DOCUMENT
+================================================================================

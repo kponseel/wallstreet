@@ -1,0 +1,473 @@
+================================================================================
+BATCH 5 — FRONTEND UX & SCREEN FLOW
+Wall Street Fantasy League MVP — UX Acceptance Scenarios
+================================================================================
+
+1. FIRST-TIME USER ONBOARDING
+-----------------------------
+
+SCENARIO: FTU-001 - New User Email Signup
+-----------------------------------------
+Given: User has never used the app
+When: User opens app for first time
+
+Flow:
+  1. User sees Splash screen (2 seconds)
+  2. User lands on Welcome screen
+  3. User taps "Create Account"
+  4. User enters email: "john@example.com"
+  5. User enters password: "SecureP@ss1"
+  6. User enters display name: "JohnTrader"
+  7. User checks "I accept Terms of Service"
+  8. User taps "Create Account"
+  9. System shows loading state (max 3 seconds)
+  10. User lands on VerifyEmail screen
+  11. User receives email within 60 seconds
+  12. User clicks verification link
+  13. User returns to app, taps "I've Verified"
+  14. System checks verification status
+  15. User lands on Home screen
+
+Acceptance Criteria:
+  [ ] All form validations work in real-time
+  [ ] Password strength indicator shows
+  [ ] Terms of Service link opens in browser
+  [ ] Loading state shows during API call
+  [ ] Error messages are clear if signup fails
+  [ ] Verification email arrives within 1 minute
+  [ ] Deep link from email returns to app
+
+SCENARIO: FTU-002 - New User Google Signup
+------------------------------------------
+Given: User has never used the app
+When: User opens app and chooses Google signup
+
+Flow:
+  1. User sees Welcome screen
+  2. User taps "Continue with Google"
+  3. Google OAuth popup/sheet appears
+  4. User selects Google account
+  5. User grants permissions
+  6. System shows loading state
+  7. User lands on Home screen (email pre-verified)
+
+Acceptance Criteria:
+  [ ] Google OAuth flow completes smoothly
+  [ ] User profile populated from Google data
+  [ ] No email verification needed
+  [ ] User can immediately join matches
+
+SCENARIO: FTU-003 - First Match Join
+------------------------------------
+Given: Verified user on Home screen with no matches
+When: User wants to join their first match
+
+Flow:
+  1. User sees empty state: "No active matches"
+  2. User taps "Join a Match" button
+  3. User lands on MatchLobby screen
+  4. User sees list of public matches
+  5. User taps on "Tech Titans Weekly"
+  6. User lands on MatchPreview screen
+  7. User reviews match details (duration, players)
+  8. User taps "Join Match"
+  9. User lands on PortfolioBuilder screen
+  10. User searches for "AAPL"
+  11. User selects Apple Inc. from results
+  12. User sets allocation to 20%
+  13. User repeats for 4 more stocks
+  14. Validation shows all green checks
+  15. User taps "Submit Portfolio"
+  16. Confirmation modal appears
+  17. User confirms submission
+  18. User lands on MatchDetail screen
+  19. User sees "Portfolio locked" status
+
+Acceptance Criteria:
+  [ ] Empty state has clear call-to-action
+  [ ] Match lobby loads within 2 seconds
+  [ ] Match cards show essential info
+  [ ] Portfolio builder prevents invalid states
+  [ ] Symbol search returns results within 500ms
+  [ ] Allocation slider is smooth and precise
+  [ ] Total allocation updates in real-time
+  [ ] Submit button disabled until valid
+  [ ] Confirmation shows portfolio summary
+  [ ] Locked state clearly indicated
+
+2. PORTFOLIO BUILDER FLOW
+-------------------------
+
+SCENARIO: PB-001 - Build Valid Portfolio
+----------------------------------------
+Given: User is on PortfolioBuilder for an OPEN match
+When: User builds a valid portfolio
+
+Flow:
+  1. User sees 5 empty position slots
+  2. User sees total allocation: 0%
+  3. User taps "Add Position"
+  4. Symbol search modal opens
+  5. User types "NVDA"
+  6. Results appear as user types
+  7. User selects "NVDA - NVIDIA Corporation"
+  8. User returns to builder with NVDA added
+  9. User adjusts NVDA allocation to 25%
+  10. User repeats for AAPL (20%), MSFT (20%), GOOGL (20%), AMZN (15%)
+  11. Total shows 100%
+  12. Validation section shows:
+      - [✓] 5 positions
+      - [✓] Each position 5-50%
+      - [✓] Total equals 100%
+  13. Submit button becomes active
+
+Acceptance Criteria:
+  [ ] Empty slots are visually distinct
+  [ ] Total percentage updates immediately
+  [ ] Symbol search is debounced (300ms)
+  [ ] Already-added symbols are grayed out in search
+  [ ] Allocation cannot exceed remaining budget
+  [ ] Validation feedback is instant
+  [ ] Submit button state reflects validity
+
+SCENARIO: PB-002 - Validation Errors
+------------------------------------
+Given: User is building portfolio
+When: User creates invalid states
+
+Substates to test:
+  1. Less than 5 positions:
+     - Validation shows: [✗] Need 5 positions (have 3)
+     - Submit button disabled
+
+  2. Position under 5%:
+     - Slider prevents going below 5%
+     - Minimum snap point is 5%
+
+  3. Position over 50%:
+     - Slider prevents going above 50%
+     - Maximum snap point is 50%
+
+  4. Total over 100%:
+     - Not possible if sliders work correctly
+     - If reached, show: [✗] Over budget by X%
+
+  5. Total under 100%:
+     - Show: [✗] Allocate remaining X%
+     - Submit button disabled
+
+  6. Duplicate symbol:
+     - Symbol search grays out already-selected
+     - If somehow added, show error and remove
+
+Acceptance Criteria:
+  [ ] All invalid states have clear messaging
+  [ ] UI prevents most invalid states proactively
+  [ ] Error messages explain how to fix
+  [ ] No way to submit invalid portfolio
+
+SCENARIO: PB-003 - Edit Before Lock
+-----------------------------------
+Given: User has submitted portfolio, match still OPEN
+When: User wants to change positions
+
+Flow:
+  1. User on MatchDetail sees "Edit Portfolio"
+  2. User taps "Edit Portfolio"
+  3. User lands on PortfolioBuilder with current positions
+  4. User removes AMZN
+  5. User adds META instead
+  6. User adjusts allocations
+  7. User taps "Update Portfolio"
+  8. Confirmation shows changes
+  9. User confirms
+  10. Portfolio updated, new submittedAt timestamp
+
+Acceptance Criteria:
+  [ ] Edit button visible only for OPEN matches
+  [ ] Current portfolio pre-populated
+  [ ] Changes clearly highlighted
+  [ ] Update replaces previous submission
+  [ ] Timestamp reflects new submission
+
+SCENARIO: PB-004 - Deadline Warning
+-----------------------------------
+Given: User is building portfolio with <1 hour to deadline
+When: Deadline approaches
+
+Flow:
+  1. User sees countdown timer prominently
+  2. Timer shows "59:32 remaining"
+  3. At 30 minutes, warning banner appears
+  4. At 10 minutes, timer turns red
+  5. At 5 minutes, modal warning appears
+  6. At 1 minute, urgent warning
+  7. If deadline passes, submission rejected
+
+Acceptance Criteria:
+  [ ] Countdown always visible in builder
+  [ ] Visual urgency increases over time
+  [ ] Warning at 30, 10, 5, 1 minute marks
+  [ ] If deadline passes mid-edit, clear error
+
+3. MATCH LIFECYCLE FLOWS
+------------------------
+
+SCENARIO: ML-001 - Match Transitions to LIVE
+--------------------------------------------
+Given: User has portfolio in OPEN match
+When: Match start time arrives
+
+Flow:
+  1. User is on MatchDetail
+  2. Countdown shows "Starting in 5 minutes"
+  3. User sees "Edit Portfolio" button
+  4. Countdown reaches zero
+  5. Screen refreshes automatically
+  6. Status changes to "LIVE"
+  7. "Edit Portfolio" button disappears
+  8. "Portfolio Locked" badge appears
+  9. Timer now shows "Ends in 7 days"
+  10. Leaderboard section becomes active
+
+Acceptance Criteria:
+  [ ] Real-time update when match starts
+  [ ] Edit option removed after lock
+  [ ] Clear visual transition to LIVE state
+  [ ] Leaderboard shows initial positions
+
+SCENARIO: ML-002 - Match Settles
+--------------------------------
+Given: User is in LIVE match
+When: Match end time arrives
+
+Flow:
+  1. User on MatchDetail
+  2. Timer shows "Ends in 5 minutes"
+  3. Timer reaches zero
+  4. Status changes to "SETTLING"
+  5. Loading indicator shows "Calculating results..."
+  6. After 1-3 minutes, status changes to "FINISHED"
+  7. Final leaderboard appears
+  8. User's rank highlighted
+  9. "View My Result" button appears
+
+Acceptance Criteria:
+  [ ] Settling state clearly communicated
+  [ ] No interaction possible during settling
+  [ ] Results appear once ready
+  [ ] User rank prominently displayed
+
+SCENARIO: ML-003 - View Results
+-------------------------------
+Given: Match is FINISHED
+When: User wants to see detailed results
+
+Flow:
+  1. User on Leaderboard, taps own entry
+  2. User lands on ResultDetail screen
+  3. Screen shows:
+     - Final rank: #3 of 15
+     - Portfolio return: +5.38%
+     - Final value: V$10,538
+     - Position breakdown:
+       - NVDA: +9.99% (contributed +2.50%)
+       - AAPL: +2.51% (contributed +0.50%)
+       - etc.
+  4. User can toggle to see prices
+  5. User sees start vs. end prices
+
+Acceptance Criteria:
+  [ ] Results show clear rank and return
+  [ ] Position breakdown shows contribution
+  [ ] Prices displayed with proper formatting
+  [ ] Positive/negative clearly color-coded
+
+4. ERROR STATES
+---------------
+
+SCENARIO: ERR-001 - Network Failure
+-----------------------------------
+Given: User has no network connection
+When: User tries to load MatchLobby
+
+Flow:
+  1. User taps Matches tab
+  2. Loading spinner shows
+  3. After 10 seconds, error appears
+  4. "No internet connection"
+  5. "Retry" button visible
+  6. User reconnects
+  7. User taps "Retry"
+  8. Content loads successfully
+
+Acceptance Criteria:
+  [ ] Timeout after 10 seconds
+  [ ] Clear error message
+  [ ] Retry option always available
+  [ ] Previously cached data shown if available
+
+SCENARIO: ERR-002 - Invalid Match Code
+--------------------------------------
+Given: User entering private match code
+When: Code is invalid
+
+Flow:
+  1. User taps "Join Private Match"
+  2. Modal appears with code input
+  3. User enters "ABC123"
+  4. User taps "Join"
+  5. Loading shows briefly
+  6. Error appears: "Invalid match code"
+  7. User can try again
+  8. After 5 attempts, locked for 5 minutes
+
+Acceptance Criteria:
+  [ ] Clear error for invalid code
+  [ ] Allow multiple attempts
+  [ ] Rate limit after 5 failures
+  [ ] Code input clears on error
+
+SCENARIO: ERR-003 - Portfolio Submit Failure
+--------------------------------------------
+Given: User submitting portfolio
+When: Submission fails
+
+Flow:
+  1. User taps "Submit Portfolio"
+  2. Loading shows
+  3. Error: "Submission failed. Please try again."
+  4. Portfolio data preserved
+  5. User taps "Try Again"
+  6. Submission succeeds
+
+Possible failure reasons:
+  - Network error → "Connection failed"
+  - Deadline passed → "Deadline has passed"
+  - Invalid symbol → "XXXX is no longer available"
+  - Already submitted → "Portfolio already locked"
+
+Acceptance Criteria:
+  [ ] Portfolio data never lost on error
+  [ ] Specific error messages for each case
+  [ ] Retry always available unless deadline passed
+  [ ] Deadline error navigates away from builder
+
+SCENARIO: ERR-004 - Session Expired
+-----------------------------------
+Given: User's auth session expires
+When: User tries to perform action
+
+Flow:
+  1. User has been inactive for extended period
+  2. User taps "Submit Portfolio"
+  3. Error: "Session expired. Please sign in again."
+  4. User taps "Sign In"
+  5. User re-authenticates
+  6. User returns to previous screen (if possible)
+
+Acceptance Criteria:
+  [ ] Clear session expiry message
+  [ ] Easy path to re-authenticate
+  [ ] Return to previous context when possible
+  [ ] Portfolio draft saved locally
+
+5. EDGE CASE FLOWS
+------------------
+
+SCENARIO: EC-001 - Match Cancelled
+----------------------------------
+Given: User joined a match
+When: Match is cancelled (insufficient players)
+
+Flow:
+  1. User on Home screen
+  2. Push notification: "Tech Titans cancelled"
+  3. User taps notification
+  4. MatchDetail shows CANCELLED status
+  5. Reason shown: "Not enough players joined"
+  6. "Browse Other Matches" button visible
+
+Acceptance Criteria:
+  [ ] Notification sent for cancellation
+  [ ] Clear reason displayed
+  [ ] Easy path to find other matches
+  [ ] Cancelled match removed from "Active"
+
+SCENARIO: EC-002 - Leave Match
+------------------------------
+Given: User in OPEN match, portfolio not locked
+When: User wants to leave
+
+Flow:
+  1. User on MatchDetail
+  2. User taps "Leave Match"
+  3. Confirmation: "Leave Tech Titans?"
+  4. Warning: "Your portfolio will be deleted"
+  5. User confirms
+  6. User removed from match
+  7. User redirected to MatchLobby
+
+Acceptance Criteria:
+  [ ] Leave option only for OPEN matches
+  [ ] Warning about data loss
+  [ ] Confirmation required
+  [ ] Clean removal from match
+
+SCENARIO: EC-003 - Creator Cancels
+----------------------------------
+Given: User is match creator
+When: Creator cancels own match
+
+Flow:
+  1. Creator on MatchDetail
+  2. Creator taps menu → "Cancel Match"
+  3. Warning: "Cancel Tech Titans?"
+  4. Warning: "All participants will be notified"
+  5. Creator confirms
+  6. Match cancelled
+  7. All participants notified
+
+Acceptance Criteria:
+  [ ] Only creator sees cancel option
+  [ ] Clear warning about impact
+  [ ] All participants notified
+  [ ] Match status updated immediately
+
+6. RESPONSIVE BEHAVIOR
+----------------------
+
+SCENARIO: RES-001 - Portrait/Landscape
+--------------------------------------
+Supported:
+  - Portrait: Primary layout (mobile-first)
+  - Landscape: Supported with adapted layout
+
+Key adaptations:
+  - PortfolioBuilder: Positions in 2 columns
+  - Leaderboard: More columns visible
+  - MatchDetail: Side-by-side layout option
+
+SCENARIO: RES-002 - Small Screen
+--------------------------------
+Minimum supported: 320px width (iPhone SE)
+
+Adaptations:
+  - Reduced padding
+  - Smaller fonts (but accessible)
+  - Simplified cards
+  - Single column layouts
+
+SCENARIO: RES-003 - Tablet/Desktop
+----------------------------------
+Supported: 768px+ width
+
+Adaptations:
+  - Max content width: 600px
+  - Centered content
+  - Larger touch targets
+  - More whitespace
+
+================================================================================
+END OF UX ACCEPTANCE SCENARIOS
+================================================================================

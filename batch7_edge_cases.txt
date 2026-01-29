@@ -1,0 +1,396 @@
+================================================================================
+BATCH 7 — QA, EDGE CASES & MVP POLISH
+Wall Street Fantasy League MVP — Edge Case Catalogue
+================================================================================
+
+1. EDGE CASE SEVERITY LEVELS
+----------------------------
+
+CRITICAL: System failure, data loss, or security breach
+HIGH: Core functionality broken, no workaround
+MEDIUM: Feature degraded, workaround exists
+LOW: Minor UX issue, cosmetic
+
+2. AUTHENTICATION EDGE CASES
+----------------------------
+
+EDGE-AUTH-001: Email Change During Verification
+-----------------------------------------------
+Scenario: User signs up, then tries to change email before verifying
+Severity: MEDIUM
+Reproduction:
+  1. Sign up with email A
+  2. Before clicking verification link, request email change to B
+  3. Click original verification link for A
+Expected: Verification link should be invalid after email change
+Mitigation: Invalidate pending verification on email change
+Status: Covered in batch3_auth_flow.txt
+
+EDGE-AUTH-002: Social Login Email Collision
+-------------------------------------------
+Scenario: User has email account, then tries Google login with same email
+Severity: MEDIUM
+Reproduction:
+  1. Sign up with email john@example.com
+  2. Later, click "Continue with Google" using same email
+Expected: Accounts should link, not create duplicate
+Mitigation: Firebase handles automatically; test to confirm
+Status: Requires testing
+
+EDGE-AUTH-003: Deleted Account Re-registration
+----------------------------------------------
+Scenario: User deletes account, then tries to sign up again with same email
+Severity: LOW
+Reproduction:
+  1. Create account with email A
+  2. Delete account
+  3. Wait 30 days (data purge)
+  4. Sign up again with email A
+Expected: Should allow new account creation
+Mitigation: Email released after data purge
+Status: Designed in batch3_auth_flow.txt
+
+EDGE-AUTH-004: Session During Password Reset
+--------------------------------------------
+Scenario: User is logged in on device A, resets password on device B
+Severity: MEDIUM
+Reproduction:
+  1. Log in on mobile
+  2. Reset password from web
+  3. Try to use mobile app
+Expected: Mobile session should be invalidated
+Mitigation: Firebase invalidates all sessions on password change
+Status: Requires testing
+
+3. MATCH LIFECYCLE EDGE CASES
+-----------------------------
+
+EDGE-MATCH-001: Match Start During System Maintenance
+-----------------------------------------------------
+Scenario: Scheduled match start overlaps with system maintenance
+Severity: HIGH
+Reproduction:
+  1. Schedule match to start at 4 PM
+  2. System undergoes maintenance at 3:55 PM
+  3. Maintenance ends at 4:15 PM
+Expected: Match should start as soon as system recovers
+Mitigation: Scheduler catches up; delay notifications sent
+Status: Covered in batch4_workflows.txt
+
+EDGE-MATCH-002: Exactly 2 Players at Deadline
+---------------------------------------------
+Scenario: Match has exactly minimum players when deadline hits
+Severity: LOW
+Reproduction:
+  1. Create match with minPlayers=2
+  2. Two players join but only 1 submits portfolio
+  3. Deadline passes
+Expected: Match cancels (need 2 SUBMITTED portfolios)
+Mitigation: Check submitted count, not just joined count
+Status: Requires specific validation
+
+EDGE-MATCH-003: Player Joins at Exact Deadline
+----------------------------------------------
+Scenario: Player submits join request at timestamp equal to deadline
+Severity: MEDIUM
+Reproduction:
+  1. Deadline is 1624392000000 (Unix ms)
+  2. Player submit timestamp is 1624392000000
+  3. Check if join succeeds
+Expected: Join should succeed (deadline is inclusive)
+Mitigation: Use <= comparison for deadline check
+Status: Covered in batch1_edge_cases.txt
+
+EDGE-MATCH-004: Market Holiday Added After Match Created
+--------------------------------------------------------
+Scenario: Match scheduled, then unexpected market closure announced
+Severity: HIGH
+Reproduction:
+  1. Create match ending June 30
+  2. June 30 declared national day of mourning (market closed)
+  3. Match end date arrives
+Expected: Match should auto-extend to next trading day
+Mitigation: Check market status at settlement time
+Status: Covered in batch1_lifecycle.txt
+
+EDGE-MATCH-005: Creator Leaves, Match Continues
+-----------------------------------------------
+Scenario: Match creator leaves their own match
+Severity: LOW
+Reproduction:
+  1. User A creates match
+  2. Users B, C, D join
+  3. User A leaves match
+  4. Match starts
+Expected: Match continues without creator; no special handling
+Mitigation: Creator has no special runtime privileges
+Status: Covered in batch1_edge_cases.txt
+
+EDGE-MATCH-006: All But One Player Leave
+----------------------------------------
+Scenario: Match starts with 5 players, 4 delete accounts
+Severity: MEDIUM
+Reproduction:
+  1. Match starts with 5 players
+  2. During match, 4 players delete accounts
+  3. Match ends
+Expected: Remaining player wins by default
+Mitigation: Deleted users marked as [Deleted User], portfolios remain
+Status: Covered in batch1_edge_cases.txt
+
+4. PORTFOLIO EDGE CASES
+-----------------------
+
+EDGE-PORT-001: Concurrent Portfolio Edits
+-----------------------------------------
+Scenario: User edits portfolio from two devices simultaneously
+Severity: MEDIUM
+Reproduction:
+  1. Open portfolio builder on phone
+  2. Open portfolio builder on tablet
+  3. Edit on phone, don't submit
+  4. Edit on tablet, submit
+  5. Submit from phone
+Expected: Last submission wins, earlier is overwritten
+Mitigation: Use server timestamp; no optimistic locking needed
+Status: Designed in batch4_functions.txt
+
+EDGE-PORT-002: Symbol Delisted During Portfolio Build
+-----------------------------------------------------
+Scenario: User adds symbol, symbol delisted before submit
+Severity: LOW
+Reproduction:
+  1. User adds XYZZ to portfolio builder
+  2. XYZZ delisted overnight
+  3. User tries to submit next day
+Expected: Error "XYZZ is no longer available"
+Mitigation: Validate all symbols at submit time
+Status: Requires fresh validation on submit
+
+EDGE-PORT-003: Exactly 5% and 50% Allocations
+---------------------------------------------
+Scenario: User sets position to boundary values
+Severity: LOW
+Reproduction:
+  1. Set position 1 to exactly 5%
+  2. Set position 2 to exactly 50%
+  3. Fill remaining positions
+Expected: Both boundary values accepted
+Mitigation: Use >= 5 and <= 50 comparisons
+Status: Validation logic in batch5_ux_scenarios.txt
+
+EDGE-PORT-004: Floating Point Allocation Total
+----------------------------------------------
+Scenario: Allocations that sum to 99.999% or 100.001%
+Severity: MEDIUM
+Reproduction:
+  1. Set allocations: 20.0, 20.0, 20.0, 20.0, 20.0
+  2. Due to floating point: might be 99.99999999
+Expected: Treated as valid 100%
+Mitigation: Store as integers (cents); use tolerance for display
+Status: Covered in batch1_scoring.txt
+
+EDGE-PORT-005: Same Symbol, Different Exchange
+----------------------------------------------
+Scenario: User tries to add AAPL:NYSE and AAPL:NASDAQ
+Severity: LOW
+Reproduction:
+  1. Add AAPL (primary listing NASDAQ)
+  2. Search for AAPL on different exchange
+Expected: Should not find duplicate; use primary exchange only
+Mitigation: Store only primary exchange listing
+Status: Covered in batch6_symbol_rules.txt
+
+5. SETTLEMENT EDGE CASES
+------------------------
+
+EDGE-SETT-001: Price API Returns Wrong Date
+-------------------------------------------
+Scenario: API returns yesterday's price instead of today's
+Severity: HIGH
+Reproduction:
+  1. Request price for 2024-06-20
+  2. API returns data with timestamp 2024-06-19
+Expected: Detect mismatch, retry or use with flag
+Mitigation: Verify date in response matches request
+Status: Validation in batch6_price_norm.txt
+
+EDGE-SETT-002: Stock Split During Match
+---------------------------------------
+Scenario: NVDA does 10:1 split during a 30-day match
+Severity: HIGH
+Reproduction:
+  1. Match starts, NVDA at $1000
+  2. Day 15: 10:1 split
+  3. Match ends, NVDA at $110
+Expected: Split-adjusted prices used; return calc valid
+Mitigation: API provides split-adjusted prices
+Status: Covered in batch6_price_norm.txt
+
+EDGE-SETT-003: All Portfolios Negative Returns
+----------------------------------------------
+Scenario: Market crashes, everyone loses money
+Severity: LOW
+Reproduction:
+  1. Match with 10 players
+  2. All portfolios have negative returns
+Expected: Smallest loss wins (e.g., -2% beats -10%)
+Mitigation: Normal ranking algorithm works correctly
+Status: Covered in batch1_scoring.txt
+
+EDGE-SETT-004: Perfect Three-Way Tie
+------------------------------------
+Scenario: Three players have identical returns and submit times
+Severity: LOW
+Reproduction:
+  1. Players A, B, C have identical portfolios
+  2. All submitted at exactly same millisecond
+  3. All have same return
+Expected: Alphabetical tiebreaker: A=1, B=2, C=3
+Mitigation: Third tiebreaker is alphabetical username
+Status: Covered in batch1_scoring.txt
+
+EDGE-SETT-005: Settlement Runs Twice
+------------------------------------
+Scenario: Due to retry logic, settlement triggered twice
+Severity: CRITICAL
+Reproduction:
+  1. Settlement starts
+  2. Timeout/error mid-process
+  3. Retry triggers
+  4. First run completes
+  5. Second run starts
+Expected: Second run detects FINISHED status, exits
+Mitigation: Idempotency check at start of settlement
+Status: Covered in batch4_error_handling.txt
+
+EDGE-SETT-006: Price of $0 (Bankruptcy)
+---------------------------------------
+Scenario: Company goes bankrupt, stock worthless
+Severity: MEDIUM
+Reproduction:
+  1. User holds BANKRUPT_CO
+  2. Company files Chapter 7
+  3. Stock stops trading at $0.01, then delisted
+Expected: Use last traded price; -99%+ return
+Mitigation: Handle zero/near-zero prices gracefully
+Status: Edge case in batch1_edge_cases.txt
+
+EDGE-SETT-007: 100 Player Settlement Timeout
+--------------------------------------------
+Scenario: Match with 100 players takes too long to settle
+Severity: MEDIUM
+Reproduction:
+  1. Match with 100 players
+  2. Each has 5 unique symbols (up to 500 symbols)
+  3. Settlement function times out
+Expected: Process in batches or increase timeout
+Mitigation: 540s timeout should suffice; batch if needed
+Status: Performance consideration
+
+6. DATA INTEGRITY EDGE CASES
+----------------------------
+
+EDGE-DATA-001: Firestore Write Conflict
+---------------------------------------
+Scenario: Two processes try to update same document
+Severity: HIGH
+Reproduction:
+  1. User submits portfolio
+  2. Simultaneously, match start tries to lock
+Expected: Transaction ensures atomicity
+Mitigation: Use Firestore transactions for critical updates
+Status: Covered in batch4_error_handling.txt
+
+EDGE-DATA-002: Orphaned Portfolio Document
+------------------------------------------
+Scenario: User in participants but no portfolio
+Severity: MEDIUM
+Reproduction:
+  1. User joins match (participant created)
+  2. System error before portfolio saved
+  3. Match starts
+Expected: User counted but has no portfolio
+Mitigation: Only count portfolios, not participants, for min check
+Status: Validation in batch4_functions.txt
+
+EDGE-DATA-003: Stale Read After Write
+-------------------------------------
+Scenario: Write completes but immediate read returns old data
+Severity: MEDIUM
+Reproduction:
+  1. Submit portfolio
+  2. Immediately navigate to match detail
+  3. Portfolio shows as not submitted
+Expected: May see stale data briefly
+Mitigation: Use optimistic UI updates; eventual consistency OK
+Status: Frontend handling in batch5_ux_scenarios.txt
+
+7. UI/UX EDGE CASES
+-------------------
+
+EDGE-UX-001: Very Long Company Names
+------------------------------------
+Scenario: Company name exceeds display width
+Severity: LOW
+Reproduction:
+  1. Add stock with long name
+  2. View in portfolio builder
+Expected: Name truncated with ellipsis
+Mitigation: CSS text-overflow: ellipsis
+Status: UI implementation detail
+
+EDGE-UX-002: Offline Mode Behavior
+----------------------------------
+Scenario: User loses connection mid-action
+Severity: MEDIUM
+Reproduction:
+  1. Start editing portfolio
+  2. Turn off wifi
+  3. Try to submit
+Expected: Clear error message, data preserved
+Mitigation: Detect offline, queue or warn
+Status: Covered in batch5_ux_scenarios.txt
+
+EDGE-UX-003: Timezone Display Confusion
+---------------------------------------
+Scenario: User in PST sees ET times
+Severity: LOW
+Reproduction:
+  1. User in California views match
+  2. Deadline shows 4 PM
+  3. User thinks it's their local time
+Expected: Clear indication of timezone
+Mitigation: Always show "(4:00 PM ET)" explicitly
+Status: UI specification in batch6_price_norm.txt
+
+8. EDGE CASE PRIORITY MATRIX
+----------------------------
+
+Severity | Count | Action Required
+---------|-------|------------------------------------------
+CRITICAL | 1     | Must fix before launch
+HIGH     | 5     | Must fix before launch
+MEDIUM   | 12    | Fix if time permits; document workarounds
+LOW      | 8     | Post-launch improvements
+
+9. MITIGATION TRACKING
+----------------------
+
+Edge Case ID    | Mitigation Doc          | Status
+----------------|-------------------------|------------------
+EDGE-AUTH-001   | batch3_auth_flow.txt    | Designed
+EDGE-AUTH-002   | -                       | Needs testing
+EDGE-MATCH-001  | batch4_workflows.txt    | Designed
+EDGE-MATCH-002  | -                       | Needs validation
+EDGE-MATCH-003  | batch1_edge_cases.txt   | Designed
+EDGE-MATCH-004  | batch1_lifecycle.txt    | Designed
+EDGE-PORT-001   | batch4_functions.txt    | Designed
+EDGE-PORT-004   | batch1_scoring.txt      | Designed
+EDGE-SETT-001   | batch6_price_norm.txt   | Designed
+EDGE-SETT-005   | batch4_error_handling.txt| Designed
+EDGE-DATA-001   | batch4_error_handling.txt| Designed
+
+================================================================================
+END OF EDGE CASE CATALOGUE
+================================================================================
