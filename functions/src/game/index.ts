@@ -109,7 +109,7 @@ export const createGame = functions.https.onCall(
 
     await createAuditLog(db, 'GAME_CREATED', uid, 'GAME', gameCode!, { name });
 
-    functions.logger.info(`Game created: ${gameCode} by ${uid}`);
+    functions.logger.info(`Game created: ${gameCode!} by ${uid}`);
 
     return {
       success: true,

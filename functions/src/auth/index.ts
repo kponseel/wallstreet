@@ -17,8 +17,8 @@ export const onUserCreated = functions.auth.user().onCreate(async (user) => {
   const finalDisplayName = displayName || email?.split('@')[0] || `User${uid.slice(0, 6)}`;
 
   const defaultStats: UserStats = {
-    matchesPlayed: 0,
-    matchesWon: 0,
+    gamesPlayed: 0,
+    gamesWon: 0,
     totalReturns: 0,
     bestReturn: 0,
     averageRank: 0,
