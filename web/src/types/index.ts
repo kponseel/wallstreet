@@ -1,3 +1,7 @@
+// ============================================
+// WALLSTREET FANTASY LEAGUE v2.0 - FRONTEND TYPES
+// ============================================
+
 // User types
 export interface User {
   uid: string;
@@ -9,97 +13,186 @@ export interface User {
 }
 
 export interface UserStats {
-  matchesPlayed: number;
-  matchesWon: number;
+  gamesPlayed: number;
+  gamesWon: number;
   totalReturns: number;
   bestReturn: number;
   averageRank: number;
 }
 
-// Match types
-export type MatchStatus = 'DRAFT' | 'OPEN' | 'LIVE' | 'SETTLING' | 'FINISHED' | 'CANCELLED';
-export type MatchType = 'PUBLIC' | 'PRIVATE';
+// ============================================
+// GAME TYPES (formerly Match)
+// ============================================
 
-export interface Match {
-  matchId: string;
+export type GameStatus = 'DRAFT' | 'LIVE' | 'ENDED';
+
+export interface Game {
+  // Primary identifier - unique code like "WS-8821"
+  code: string;
+
+  // Game metadata
   name: string;
-  description: string | null;
   creatorId: string;
   creatorDisplayName: string;
-  type: MatchType;
-  matchCode: string | null;
-  inviteCode?: string | null;
-  status: MatchStatus;
-  durationDays: number;
-  startDate: Date;
-  endDate: Date;
-  entryDeadline: Date;
+
+  // Status management
+  status: GameStatus;
+
+  // Timing (fixed 7-day duration, ends at 22h30 Paris)
+  startDate: Date | null;
+  endDate: Date | null;
+
+  // Players
   playerCount: number;
   maxPlayers: number;
+
+  // Price snapshot - frozen J-1 prices at launch
+  initialPricesSnapshot: Record<string, number> | null;
+
+  // All tickers in this game
+  tickers: string[];
+
+  // Data quality tracking
+  dataQualityFlag: 'OK' | 'STALE_PRICES' | 'ESTIMATED_PRICES';
+
+  // Timestamps
+  createdAt: Date;
+  launchedAt: Date | null;
+  endedAt: Date | null;
 }
 
-// Portfolio types
-export interface Position {
-  symbol: string;
-  exchange: string;
+// ============================================
+// PLAYER TYPES
+// ============================================
+
+export interface PortfolioItem {
+  ticker: string;
+  budgetInvested: number;
+  quantity: number;
+  initialPrice: number;
+}
+
+export interface Player {
+  playerId: string;
+  gameCode: string;
+  userId: string | null;
+  nickname: string;
+  portfolio: PortfolioItem[];
+  totalBudget: number;
+  isReady: boolean;
+  joinedAt: Date;
+  submittedAt: Date | null;
+}
+
+// For portfolio builder (before submission)
+export interface PortfolioDraft {
+  ticker: string;
   companyName: string;
-  allocationCents: number;
-  allocationPercent: number;
+  market: Market;
+  budgetInvested: number;
 }
 
-export interface Portfolio {
-  portfolioId: string;
-  matchId: string;
-  userId: string;
-  positions: Position[];
-  isLocked: boolean;
-  submittedAt: Date;
-  currentReturnPercent?: number;
-}
+// ============================================
+// RESULT TYPES
+// ============================================
 
-// Result types
-export interface PositionResult extends Position {
-  startPriceCents: number;
-  endPriceCents: number;
+export interface PositionResult {
+  ticker: string;
+  budgetInvested: number;
+  quantity: number;
+  initialPrice: number;
+  finalPrice: number;
   returnPercent: number;
-  weightedContribution: number;
+  valueAtEnd: number;
 }
 
 export interface Result {
   resultId: string;
-  matchId: string;
-  userId: string;
-  displayName: string;
+  gameCode: string;
+  playerId: string;
+  nickname: string;
   positionResults: PositionResult[];
-  returnPercent: number;
-  startValueCents: number;
-  endValueCents: number;
+  portfolioReturnPercent: number;
+  initialValue: number;
+  finalValue: number;
   rank: number;
   totalParticipants: number;
+  awards: Award[];
+  whatIfMessage: string | null;
+  submittedAt: Date;
+  calculatedAt: Date;
 }
 
-// Leaderboard types
+// ============================================
+// AWARDS TYPES
+// ============================================
+
+export type AwardType =
+  | 'WOLF'        // 🏆 Le Loup de Wall Street - 1st place
+  | 'DOLPHIN'     // 🥈 Le Dauphin - 2nd place
+  | 'INTERN'      // 🪵 Le Stagiaire - Last place
+  | 'ROCKET'      // 🚀 La Fusée - Best single stock performance
+  | 'BAG_HOLDER'  // 💩 La Tuile - Worst single stock performance
+  | 'ORACLE'      // 🔮 L'Oracle - All 3 stocks in green
+  | 'GAMBLER';    // 🎰 Le Casino - >8000 credits on one stock
+
+export interface Award {
+  type: AwardType;
+  ticker?: string;
+  value?: number;
+  message: string;
+}
+
+export const AWARD_CONFIG: Record<AwardType, { emoji: string; titleFr: string; titleEn: string }> = {
+  WOLF: { emoji: '🏆', titleFr: 'Le Loup de Wall Street', titleEn: 'The Wolf of Wall Street' },
+  DOLPHIN: { emoji: '🥈', titleFr: 'Le Dauphin', titleEn: 'The Runner-Up' },
+  INTERN: { emoji: '🪵', titleFr: 'Le Stagiaire', titleEn: 'The Intern' },
+  ROCKET: { emoji: '🚀', titleFr: 'La Fusée', titleEn: 'The Rocket' },
+  BAG_HOLDER: { emoji: '💩', titleFr: 'La Tuile', titleEn: 'The Bag Holder' },
+  ORACLE: { emoji: '🔮', titleFr: "L'Oracle", titleEn: 'The Oracle' },
+  GAMBLER: { emoji: '🎰', titleFr: 'Le Casino', titleEn: 'The Gambler' },
+};
+
+// ============================================
+// LEADERBOARD TYPES
+// ============================================
+
 export interface LeaderboardEntry {
+  gameCode: string;
   rank: number;
-  userId: string;
-  userDisplayName: string;
-  userPhotoURL: string | null;
+  playerId: string;
+  nickname: string;
   portfolioReturnPercent: number;
-  endValueCents: number;
-  topHolding: string;
-  topHoldingReturn: number;
+  finalValue: number;
+  awards: Award[];
+  bestPosition: {
+    ticker: string;
+    returnPercent: number;
+  };
+  worstPosition: {
+    ticker: string;
+    returnPercent: number;
+  };
 }
 
-// Symbol types
+// ============================================
+// SYMBOL TYPES
+// ============================================
+
+export type Market = 'NASDAQ' | 'NYSE' | 'CAC40';
+
 export interface Symbol {
-  symbol: string;
-  exchange: string;
+  ticker: string;
   companyName: string;
+  market: Market;
   sector?: string;
   marketCap?: 'LARGE' | 'MID' | 'SMALL';
 }
 
-// API Response
+// ============================================
+// API RESPONSE TYPES
+// ============================================
+
 export interface ApiResponse<T = unknown> {
   success: boolean;
   data?: T;
@@ -108,3 +201,17 @@ export interface ApiResponse<T = unknown> {
     message: string;
   };
 }
+
+// ============================================
+// CONSTANTS
+// ============================================
+
+export const GAME_CONSTANTS = {
+  TOTAL_BUDGET: 10000,           // 10,000 Credits
+  REQUIRED_POSITIONS: 3,          // Exactly 3 stocks
+  DURATION_DAYS: 7,               // Fixed 7 days
+  END_HOUR_PARIS: 22,             // 22h30 Paris time
+  END_MINUTE_PARIS: 30,
+  MAX_PLAYERS: 50,                // Max players per game
+  GAMBLER_THRESHOLD: 8000,        // Credits threshold for "Le Casino" award
+} as const;

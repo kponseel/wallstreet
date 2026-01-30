@@ -1,300 +1,247 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 import { Timestamp } from 'firebase-admin/firestore';
-import { Portfolio, Position, SubmitPortfolioInput, Match, SymbolCache } from '../types';
+import { Game, Player, SubmitPortfolioInput, GAME_CONSTANTS } from '../types';
 import {
-  isValidSymbol,
-  isValidExchange,
+  isValidTicker,
   validatePortfolioAllocations,
   createAuditLog,
 } from '../utils/helpers';
+import { findStockByTicker, searchStocks, isTickerEligible } from '../data/stocks';
 
 const db = admin.firestore();
 
+// ============================================
+// WALLSTREET v2.0 - PORTFOLIO FUNCTIONS
+// ============================================
+
 /**
- * Submit or update a portfolio
+ * Submit or update a portfolio (before game launch)
  */
 export const submitPortfolio = functions.https.onCall(
-  async (data: SubmitPortfolioInput, context) => {
-    if (!context.auth) {
-      throw new functions.https.HttpsError('unauthenticated', 'Must be logged in');
+  async (data: SubmitPortfolioInput & { playerId: string }, context) => {
+    const { gameCode, playerId, positions } = data;
+
+    // Get player
+    const playerRef = db.collection('players').doc(playerId);
+    const playerDoc = await playerRef.get();
+
+    if (!playerDoc.exists) {
+      throw new functions.https.HttpsError('not-found', 'Player not found');
     }
 
-    if (!context.auth.token.email_verified) {
-      throw new functions.https.HttpsError(
-        'permission-denied',
-        'Please verify your email before submitting portfolios'
-      );
+    const player = playerDoc.data() as Player;
+
+    // Verify player belongs to this game
+    if (player.gameCode !== gameCode) {
+      throw new functions.https.HttpsError('permission-denied', 'Player not in this game');
     }
 
-    const uid = context.auth.uid;
-    const { matchId, positions } = data;
+    // Get game
+    const gameRef = db.collection('games').doc(gameCode);
+    const gameDoc = await gameRef.get();
 
-    // Validate match exists and is open
-    const matchRef = db.collection('matches').doc(matchId);
-    const matchDoc = await matchRef.get();
-
-    if (!matchDoc.exists) {
-      throw new functions.https.HttpsError('not-found', 'Match not found');
+    if (!gameDoc.exists) {
+      throw new functions.https.HttpsError('not-found', 'Game not found');
     }
 
-    const match = matchDoc.data() as Match;
+    const game = gameDoc.data() as Game;
 
-    if (match.status !== 'OPEN') {
-      throw new functions.https.HttpsError('failed-precondition', 'Match is not open');
-    }
-
-    // Check deadline
-    if (Timestamp.now().toMillis() > match.entryDeadline.toMillis()) {
-      throw new functions.https.HttpsError('failed-precondition', 'Entry deadline has passed');
-    }
-
-    // Verify user is participant
-    const participantId = `${matchId}_${uid}`;
-    const participantRef = db.collection('matchParticipants').doc(participantId);
-    const participantDoc = await participantRef.get();
-
-    if (!participantDoc.exists) {
+    // Validate game state
+    if (game.status !== 'DRAFT') {
       throw new functions.https.HttpsError(
         'failed-precondition',
-        'You must join the match before submitting a portfolio'
+        'Cannot modify portfolio after game has started'
       );
     }
 
-    // Validate positions count
-    if (!positions || positions.length !== 5) {
+    // Validate positions count (must be exactly 3)
+    if (!positions || positions.length !== GAME_CONSTANTS.REQUIRED_POSITIONS) {
       throw new functions.https.HttpsError(
         'invalid-argument',
-        'Portfolio must have exactly 5 positions'
+        `Portfolio must have exactly ${GAME_CONSTANTS.REQUIRED_POSITIONS} positions`
       );
     }
 
-    // Validate each position and check for duplicates
-    const symbols = new Set<string>();
-    const validatedPositions: Position[] = [];
+    // Validate each position
+    const tickers = new Set<string>();
+    const validatedPositions: Array<{
+      ticker: string;
+      budgetInvested: number;
+      quantity: number;
+      initialPrice: number;
+    }> = [];
 
     for (const pos of positions) {
-      if (!isValidSymbol(pos.symbol)) {
+      // Validate ticker format
+      if (!isValidTicker(pos.ticker)) {
         throw new functions.https.HttpsError(
           'invalid-argument',
-          `Invalid symbol format: ${pos.symbol}`
+          `Invalid ticker format: ${pos.ticker}`
         );
       }
 
-      if (!isValidExchange(pos.exchange)) {
+      // Check for duplicates
+      if (tickers.has(pos.ticker)) {
         throw new functions.https.HttpsError(
           'invalid-argument',
-          `Invalid exchange: ${pos.exchange}`
+          `Duplicate ticker: ${pos.ticker}`
+        );
+      }
+      tickers.add(pos.ticker);
+
+      // Verify ticker is eligible
+      if (!isTickerEligible(pos.ticker)) {
+        throw new functions.https.HttpsError(
+          'invalid-argument',
+          `Ticker not eligible: ${pos.ticker}. Must be NASDAQ or CAC40.`
         );
       }
 
-      const symbolKey = `${pos.symbol}_${pos.exchange}`;
-      if (symbols.has(symbolKey)) {
+      // Validate budget
+      if (pos.budgetInvested <= 0 || pos.budgetInvested > GAME_CONSTANTS.TOTAL_BUDGET) {
         throw new functions.https.HttpsError(
           'invalid-argument',
-          `Duplicate symbol: ${pos.symbol}`
-        );
-      }
-      symbols.add(symbolKey);
-
-      // Verify symbol is eligible
-      const symbolDoc = await db.collection('symbolCache').doc(symbolKey).get();
-      if (!symbolDoc.exists) {
-        throw new functions.https.HttpsError(
-          'invalid-argument',
-          `Unknown symbol: ${pos.symbol}`
-        );
-      }
-
-      const symbolData = symbolDoc.data() as SymbolCache;
-      if (!symbolData.isEligible) {
-        throw new functions.https.HttpsError(
-          'invalid-argument',
-          `Symbol not eligible: ${pos.symbol} - ${symbolData.ineligibilityReason || 'Not available'}`
+          `Invalid budget for ${pos.ticker}: must be between 1 and ${GAME_CONSTANTS.TOTAL_BUDGET}`
         );
       }
 
       validatedPositions.push({
-        symbol: pos.symbol,
-        exchange: pos.exchange,
-        companyName: symbolData.companyName,
-        allocationCents: pos.allocationCents,
-        allocationPercent: (pos.allocationCents / 1000000) * 100,
+        ticker: pos.ticker,
+        budgetInvested: pos.budgetInvested,
+        quantity: 0, // Will be calculated at game launch
+        initialPrice: 0, // Will be set at game launch
       });
     }
 
-    // Validate allocations
+    // Validate total allocation
     const allocationValidation = validatePortfolioAllocations(validatedPositions);
     if (!allocationValidation.valid) {
       throw new functions.https.HttpsError('invalid-argument', allocationValidation.error!);
     }
 
-    // Get user info
-    const userDoc = await db.collection('users').doc(uid).get();
-    const userData = userDoc.data();
-    if (!userData) {
-      throw new functions.https.HttpsError('not-found', 'User profile not found');
-    }
-
-    // Check if portfolio already exists
-    const portfolioId = `${matchId}_${uid}`;
-    const portfolioRef = db.collection('portfolios').doc(portfolioId);
-    const existingPortfolio = await portfolioRef.get();
-
-    if (existingPortfolio.exists) {
-      const existing = existingPortfolio.data() as Portfolio;
-      if (existing.isLocked) {
-        throw new functions.https.HttpsError(
-          'failed-precondition',
-          'Portfolio is already locked and cannot be modified'
-        );
-      }
-    }
-
-    // Create/update portfolio
-    const portfolioData: Portfolio = {
-      portfolioId,
-      matchId,
-      userId: uid,
-      userDisplayName: userData.displayName,
-      positions: validatedPositions,
-      totalAllocationCents: 1000000,
-      isLocked: false,
+    // Update player's portfolio
+    await playerRef.update({
+      portfolio: validatedPositions,
+      isReady: true,
       submittedAt: Timestamp.now(),
-      lockedAt: null,
-      createdAt: existingPortfolio.exists
-        ? existingPortfolio.data()!.createdAt
-        : Timestamp.now(),
-    };
-
-    const batch = db.batch();
-
-    // Set portfolio
-    batch.set(portfolioRef, portfolioData);
-
-    // Update participant
-    batch.update(participantRef, {
-      hasSubmittedPortfolio: true,
-      portfolioId,
     });
 
-    // Update match symbols (add any new ones)
-    const newSymbols = validatedPositions.map((p) => p.symbol);
-    batch.update(matchRef, {
-      symbols: admin.firestore.FieldValue.arrayUnion(...newSymbols),
+    // Update game tickers list
+    await gameRef.update({
+      tickers: admin.firestore.FieldValue.arrayUnion(...Array.from(tickers)),
     });
 
-    await batch.commit();
+    await createAuditLog(
+      db,
+      'PORTFOLIO_SUBMITTED',
+      player.userId || 'anonymous',
+      'PLAYER',
+      playerId,
+      {
+        gameCode,
+        tickers: Array.from(tickers),
+      }
+    );
 
-    await createAuditLog(db, 'PORTFOLIO_SUBMITTED', uid, 'PORTFOLIO', portfolioId, {
-      matchId,
-      symbols: newSymbols,
-    });
-
-    functions.logger.info(`Portfolio submitted: ${portfolioId}`);
+    functions.logger.info(`Portfolio submitted for player ${playerId} in game ${gameCode}`);
 
     return {
       success: true,
       data: {
-        portfolioId,
-        submittedAt: portfolioData.submittedAt.toDate().toISOString(),
+        playerId,
+        isReady: true,
+        submittedAt: new Date().toISOString(),
       },
     };
   }
 );
 
 /**
- * Get user's portfolio for a match
+ * Get a player's portfolio
+ * Only returns full details if:
+ * - Requester is the player themselves
+ * - Game is LIVE or ENDED (portfolios revealed)
  */
 export const getPortfolio = functions.https.onCall(
-  async (data: { matchId: string; userId?: string }, context) => {
-    if (!context.auth) {
-      throw new functions.https.HttpsError('unauthenticated', 'Must be logged in');
+  async (data: { playerId: string; requestingPlayerId?: string }) => {
+    const { playerId, requestingPlayerId } = data;
+
+    const playerDoc = await db.collection('players').doc(playerId).get();
+
+    if (!playerDoc.exists) {
+      throw new functions.https.HttpsError('not-found', 'Player not found');
     }
 
-    const requestingUid = context.auth.uid;
-    const { matchId, userId } = data;
-    const targetUserId = userId || requestingUid;
+    const player = playerDoc.data() as Player;
 
-    // If requesting someone else's portfolio, check if match is finished
-    if (targetUserId !== requestingUid) {
-      const matchDoc = await db.collection('matches').doc(matchId).get();
-      if (!matchDoc.exists) {
-        throw new functions.https.HttpsError('not-found', 'Match not found');
-      }
+    // Get game to check status
+    const gameDoc = await db.collection('games').doc(player.gameCode).get();
+    const game = gameDoc.data() as Game;
 
-      const match = matchDoc.data() as Match;
-      if (match.status !== 'FINISHED') {
-        throw new functions.https.HttpsError(
-          'permission-denied',
-          "Cannot view other players' portfolios until match is finished"
-        );
-      }
+    // Check visibility rules
+    const isSelf = requestingPlayerId === playerId;
+    const isRevealed = game.status === 'LIVE' || game.status === 'ENDED';
+
+    if (!isSelf && !isRevealed) {
+      // Return limited info
+      return {
+        success: true,
+        data: {
+          playerId: player.playerId,
+          nickname: player.nickname,
+          isReady: player.isReady,
+          portfolioHidden: true,
+        },
+      };
     }
 
-    const portfolioId = `${matchId}_${targetUserId}`;
-    const portfolioDoc = await db.collection('portfolios').doc(portfolioId).get();
-
-    if (!portfolioDoc.exists) {
-      throw new functions.https.HttpsError('not-found', 'Portfolio not found');
-    }
-
-    const portfolio = portfolioDoc.data() as Portfolio;
+    // Return full portfolio
+    const portfolioWithDetails = player.portfolio.map((pos) => {
+      const stockData = findStockByTicker(pos.ticker);
+      return {
+        ...pos,
+        companyName: stockData?.companyName || pos.ticker,
+        market: stockData?.market || 'UNKNOWN',
+        sector: stockData?.sector || null,
+      };
+    });
 
     return {
       success: true,
       data: {
-        ...portfolio,
-        submittedAt: portfolio.submittedAt.toDate().toISOString(),
-        lockedAt: portfolio.lockedAt?.toDate().toISOString() || null,
-        createdAt: portfolio.createdAt.toDate().toISOString(),
+        playerId: player.playerId,
+        gameCode: player.gameCode,
+        nickname: player.nickname,
+        portfolio: portfolioWithDetails,
+        totalBudget: player.totalBudget,
+        isReady: player.isReady,
+        submittedAt: player.submittedAt?.toDate().toISOString() || null,
       },
     };
   }
 );
 
 /**
- * Search for symbols
+ * Search for stocks (NASDAQ + CAC40)
  */
 export const searchSymbols = functions.https.onCall(
   async (data: { query: string; limit?: number }, context) => {
-    if (!context.auth) {
-      throw new functions.https.HttpsError('unauthenticated', 'Must be logged in');
-    }
-
     const { query, limit = 10 } = data;
 
     if (!query || query.length < 1) {
       return { success: true, data: { symbols: [] } };
     }
 
-    const sanitizedQuery = query.toUpperCase().replace(/[^A-Z]/g, '');
-    if (sanitizedQuery.length < 1) {
-      return { success: true, data: { symbols: [] } };
-    }
-
     const maxLimit = Math.min(limit, 20);
+    const results = searchStocks(query, maxLimit);
 
-    // Query by symbol prefix
-    const symbolQuery = await db
-      .collection('symbolCache')
-      .where('isEligible', '==', true)
-      .where('symbol', '>=', sanitizedQuery)
-      .where('symbol', '<', sanitizedQuery + '\uf8ff')
-      .orderBy('symbol')
-      .limit(maxLimit)
-      .get();
-
-    const symbols = symbolQuery.docs.map((doc) => {
-      const data = doc.data() as SymbolCache;
-      return {
-        symbol: data.symbol,
-        exchange: data.exchange,
-        companyName: data.companyName,
-        sector: data.sector,
-        marketCap: data.marketCap,
-      };
-    });
+    const symbols = results.map((stock) => ({
+      ticker: stock.ticker,
+      companyName: stock.companyName,
+      market: stock.market,
+      sector: stock.sector,
+    }));
 
     return {
       success: true,
@@ -304,49 +251,25 @@ export const searchSymbols = functions.https.onCall(
 );
 
 /**
- * Validate a single symbol
+ * Validate a single ticker
  */
-export const validateSymbol = functions.https.onCall(
-  async (data: { symbol: string; exchange: string }, context) => {
-    if (!context.auth) {
-      throw new functions.https.HttpsError('unauthenticated', 'Must be logged in');
-    }
+export const validateTicker = functions.https.onCall(
+  async (data: { ticker: string }) => {
+    const { ticker } = data;
 
-    const { symbol, exchange } = data;
-
-    if (!isValidSymbol(symbol)) {
+    if (!isValidTicker(ticker)) {
       return {
         success: true,
-        data: { valid: false, reason: 'Invalid symbol format' },
+        data: { valid: false, reason: 'Invalid ticker format' },
       };
     }
 
-    if (!isValidExchange(exchange)) {
+    const stockData = findStockByTicker(ticker);
+
+    if (!stockData) {
       return {
         success: true,
-        data: { valid: false, reason: 'Invalid exchange' },
-      };
-    }
-
-    const symbolKey = `${symbol}_${exchange}`;
-    const symbolDoc = await db.collection('symbolCache').doc(symbolKey).get();
-
-    if (!symbolDoc.exists) {
-      return {
-        success: true,
-        data: { valid: false, reason: 'Symbol not found' },
-      };
-    }
-
-    const symbolData = symbolDoc.data() as SymbolCache;
-
-    if (!symbolData.isEligible) {
-      return {
-        success: true,
-        data: {
-          valid: false,
-          reason: symbolData.ineligibilityReason || 'Symbol not eligible',
-        },
+        data: { valid: false, reason: 'Ticker not found in eligible stocks' },
       };
     }
 
@@ -354,14 +277,50 @@ export const validateSymbol = functions.https.onCall(
       success: true,
       data: {
         valid: true,
-        symbol: {
-          symbol: symbolData.symbol,
-          exchange: symbolData.exchange,
-          companyName: symbolData.companyName,
-          sector: symbolData.sector,
-          marketCap: symbolData.marketCap,
+        stock: {
+          ticker: stockData.ticker,
+          companyName: stockData.companyName,
+          market: stockData.market,
+          sector: stockData.sector,
         },
       },
     };
+  }
+);
+
+/**
+ * Clear a player's portfolio (set to not ready)
+ */
+export const clearPortfolio = functions.https.onCall(
+  async (data: { playerId: string }) => {
+    const { playerId } = data;
+
+    const playerRef = db.collection('players').doc(playerId);
+    const playerDoc = await playerRef.get();
+
+    if (!playerDoc.exists) {
+      throw new functions.https.HttpsError('not-found', 'Player not found');
+    }
+
+    const player = playerDoc.data() as Player;
+
+    // Get game to check status
+    const gameDoc = await db.collection('games').doc(player.gameCode).get();
+    const game = gameDoc.data() as Game;
+
+    if (game.status !== 'DRAFT') {
+      throw new functions.https.HttpsError(
+        'failed-precondition',
+        'Cannot modify portfolio after game has started'
+      );
+    }
+
+    await playerRef.update({
+      portfolio: [],
+      isReady: false,
+      submittedAt: null,
+    });
+
+    return { success: true };
   }
 );
