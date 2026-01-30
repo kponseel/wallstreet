@@ -192,3 +192,66 @@ export const updateLastLogin = functions.https.onCall(async (_data, context) => 
     throw new functions.https.HttpsError('internal', 'Failed to update login time');
   }
 });
+
+/**
+ * Reset database - delete all users, matches, and related data
+ * WARNING: This is destructive and should only be used for development/testing
+ */
+export const resetDatabase = functions.https.onCall(async (data, context) => {
+  // Verify authentication
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Must be logged in');
+  }
+
+  const { confirmation } = data;
+
+  // Verify confirmation
+  if (confirmation !== 'RESET_ALL_DATA') {
+    throw new functions.https.HttpsError(
+      'invalid-argument',
+      'Must type RESET_ALL_DATA to confirm database reset'
+    );
+  }
+
+  try {
+    const collections = ['users', 'matches', 'matchParticipants', 'portfolios', 'auditLogs'];
+
+    for (const collectionName of collections) {
+      const snapshot = await db.collection(collectionName).get();
+      const batchSize = 500;
+      let batch = db.batch();
+      let count = 0;
+
+      for (const doc of snapshot.docs) {
+        batch.delete(doc.ref);
+        count++;
+
+        if (count % batchSize === 0) {
+          await batch.commit();
+          batch = db.batch();
+        }
+      }
+
+      if (count % batchSize !== 0) {
+        await batch.commit();
+      }
+
+      functions.logger.info(`Deleted ${count} documents from ${collectionName}`);
+    }
+
+    // Delete all Firebase Auth users
+    const listUsersResult = await admin.auth().listUsers();
+    const deletePromises = listUsersResult.users.map((user) =>
+      admin.auth().deleteUser(user.uid)
+    );
+    await Promise.all(deletePromises);
+
+    functions.logger.info(`Deleted ${listUsersResult.users.length} auth users`);
+    functions.logger.info('Database reset complete');
+
+    return { success: true, message: 'Database reset successfully' };
+  } catch (error) {
+    functions.logger.error('Failed to reset database:', error);
+    throw new functions.https.HttpsError('internal', 'Failed to reset database');
+  }
+});

@@ -4,7 +4,7 @@ import * as admin from 'firebase-admin';
 admin.initializeApp();
 
 // Export Auth functions
-export { onUserCreated, deleteUserAccount, updateLastLogin } from './auth';
+export { onUserCreated, deleteUserAccount, updateLastLogin, resetDatabase } from './auth';
 
 // Export Match functions
 export {
