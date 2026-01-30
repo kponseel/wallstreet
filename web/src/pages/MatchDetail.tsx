@@ -192,6 +192,9 @@ export function MatchDetailPage() {
           <div>
             <h2 className="text-xl font-bold">{game.name}</h2>
             <p className="text-gray-500 text-sm">Code: {game.code}</p>
+            {isCreator && (
+              <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">Admin</span>
+            )}
           </div>
           {getStatusBadge(game.status)}
         </div>
@@ -385,19 +388,28 @@ export function MatchDetailPage() {
       {/* Actions */}
       {game.status === 'DRAFT' && (
         <div className="space-y-3">
-          {/* Admin: Launch button */}
+          {/* Admin: Launch button - always visible for creator */}
           {isCreator && (
-            <button
-              onClick={handleLaunchGame}
-              disabled={launching || !allPlayersReady}
-              className={`w-full py-3 rounded-lg font-medium ${
-                allPlayersReady
-                  ? 'bg-green-600 hover:bg-green-700 text-white'
-                  : 'bg-gray-200 text-gray-500 cursor-not-allowed'
-              }`}
-            >
-              {launching ? 'Lancement...' : allPlayersReady ? 'Lancer la partie !' : `En attente (${players.filter((p) => p.isReady).length}/${players.length} prets)`}
-            </button>
+            <div className="space-y-2">
+              <button
+                onClick={handleLaunchGame}
+                disabled={launching || !allPlayersReady}
+                className={`w-full py-3 rounded-lg font-medium ${
+                  allPlayersReady
+                    ? 'bg-green-600 hover:bg-green-700 text-white'
+                    : 'bg-gray-300 text-gray-600 cursor-not-allowed'
+                }`}
+              >
+                {launching ? 'Lancement...' : allPlayersReady ? 'Lancer la partie !' : `En attente (${players.filter((p) => p.isReady).length}/${players.length} prets)`}
+              </button>
+              {!allPlayersReady && (
+                <p className="text-sm text-gray-500 text-center">
+                  {players.length < 2
+                    ? 'Il faut au moins 2 joueurs pour lancer la partie'
+                    : 'Tous les joueurs doivent avoir compose leur portefeuille'}
+                </p>
+              )}
+            </div>
           )}
 
           {/* Player: Edit portfolio button */}
