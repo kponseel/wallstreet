@@ -90,7 +90,39 @@ export const deleteUserAccount = functions.https.onCall(async (data, context) =>
       photoURL: null,
     });
 
-    // 2. Delete portfolios in OPEN matches (not locked)
+    // 2. Cancel all DRAFT and OPEN matches created by the user
+    const createdMatches = await db
+      .collection('matches')
+      .where('creatorId', '==', uid)
+      .where('status', 'in', ['DRAFT', 'OPEN'])
+      .get();
+
+    for (const matchDoc of createdMatches.docs) {
+      const matchId = matchDoc.id;
+
+      // Mark match as cancelled
+      batch.update(matchDoc.ref, {
+        status: 'CANCELLED',
+        cancelledAt: Timestamp.now(),
+        cancellationReason: 'CREATOR_DELETED',
+      });
+
+      // Delete all portfolios for this match
+      const matchPortfolios = await db
+        .collection('portfolios')
+        .where('matchId', '==', matchId)
+        .get();
+      matchPortfolios.forEach((doc) => batch.delete(doc.ref));
+
+      // Delete all participants for this match
+      const matchParticipants = await db
+        .collection('matchParticipants')
+        .where('matchId', '==', matchId)
+        .get();
+      matchParticipants.forEach((doc) => batch.delete(doc.ref));
+    }
+
+    // 3. Delete portfolios in OPEN matches (not locked) where user is participant
     const openPortfolios = await db
       .collection('portfolios')
       .where('userId', '==', uid)
@@ -101,7 +133,7 @@ export const deleteUserAccount = functions.https.onCall(async (data, context) =>
       batch.delete(doc.ref);
     });
 
-    // 3. Remove from matchParticipants for OPEN matches
+    // 4. Remove from matchParticipants for OPEN matches
     const participations = await db
       .collection('matchParticipants')
       .where('userId', '==', uid)
@@ -122,10 +154,10 @@ export const deleteUserAccount = functions.https.onCall(async (data, context) =>
 
     await batch.commit();
 
-    // 4. Log deletion
+    // 5. Log deletion
     await createAuditLog(db, 'USER_DELETED', uid, 'USER', uid, {});
 
-    // 5. Schedule auth account deletion (in production, would use a delay)
+    // 6. Schedule auth account deletion (in production, would use a delay)
     await admin.auth().deleteUser(uid);
 
     functions.logger.info(`User account deleted: ${uid}`);
