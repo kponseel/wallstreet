@@ -30,3 +30,6 @@ export {
   processMatchEnds,
   forceSettlement,
 } from './settlement';
+
+// Export Admin functions
+export { resetDatabase } from './admin';
