@@ -190,15 +190,18 @@ export const joinGame = functions.https.onCall(
       throw new functions.https.HttpsError('resource-exhausted', 'Game is full');
     }
 
-    // Check if nickname is already taken in this game
-    const existingNickname = await db
+    // Check if nickname is already taken in this game (case-insensitive)
+    const allPlayers = await db
       .collection('players')
       .where('gameCode', '==', game.code)
-      .where('nickname', '==', nickname)
-      .limit(1)
       .get();
 
-    if (!existingNickname.empty) {
+    const nicknameLower = nickname.toLowerCase();
+    const existingNickname = allPlayers.docs.find(
+      (doc) => (doc.data() as Player).nickname.toLowerCase() === nicknameLower
+    );
+
+    if (existingNickname) {
       throw new functions.https.HttpsError(
         'already-exists',
         'This nickname is already taken in this game'
@@ -221,12 +224,14 @@ export const joinGame = functions.https.onCall(
         .get();
 
       if (!existingPlayer.empty) {
-        // Return existing player
+        // Return existing player with consistent response structure
         const existing = existingPlayer.docs[0].data() as Player;
         return {
           success: true,
           data: {
             playerId: existing.playerId,
+            gameCode: game.code,
+            gameName: game.name,
             alreadyJoined: true,
           },
         };
@@ -273,6 +278,7 @@ export const joinGame = functions.https.onCall(
         playerId,
         gameCode: game.code,
         gameName: game.name,
+        alreadyJoined: false,
       },
     };
   }
