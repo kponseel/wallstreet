@@ -48,8 +48,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           photoURL: firebaseUser.photoURL,
           emailVerified: firebaseUser.emailVerified,
           stats: {
-            matchesPlayed: 0,
-            matchesWon: 0,
+            gamesPlayed: 0,
+            gamesWon: 0,
             totalReturns: 0,
             bestReturn: 0,
             averageRank: 0,

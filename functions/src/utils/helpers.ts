@@ -1,42 +1,142 @@
 import * as admin from 'firebase-admin';
 import { Timestamp } from 'firebase-admin/firestore';
+import { GAME_CONSTANTS } from '../types';
+
+// ============================================
+// WALLSTREET v2.0 - UTILITY HELPERS
+// ============================================
 
 /**
- * Generate a random alphanumeric string
+ * Generate a unique game code (e.g., "WS-8821")
  */
-export function generateMatchCode(length: number = 6): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Excluded confusing chars: I, O, 0, 1
-  let code = '';
-  for (let i = 0; i < length; i++) {
+export function generateGameCode(): string {
+  const chars = '0123456789';
+  let code = 'WS-';
+  for (let i = 0; i < 4; i++) {
     code += chars.charAt(Math.floor(Math.random() * chars.length));
   }
   return code;
 }
 
 /**
- * Check if a date is a US market trading day
+ * Generate a unique player ID
  */
-export function isTradingDay(date: Date, holidays: string[]): boolean {
-  const dayOfWeek = date.getDay();
-  // Weekend check
-  if (dayOfWeek === 0 || dayOfWeek === 6) {
-    return false;
+export function generatePlayerId(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let id = '';
+  for (let i = 0; i < 8; i++) {
+    id += chars.charAt(Math.floor(Math.random() * chars.length));
   }
-  // Holiday check
-  const dateStr = formatDateString(date);
-  return !holidays.includes(dateStr);
+  return id;
+}
+
+// ============================================
+// PARIS TIMEZONE HELPERS
+// ============================================
+
+/**
+ * Get Paris timezone offset in hours (handles DST)
+ * Paris is UTC+1 in winter, UTC+2 in summer (DST)
+ */
+function getParisOffset(date: Date): number {
+  // Create date strings for comparison
+  const jan = new Date(date.getFullYear(), 0, 1);
+  const jul = new Date(date.getFullYear(), 6, 1);
+
+  // Get standard time offset (winter)
+  const stdOffset = Math.max(jan.getTimezoneOffset(), jul.getTimezoneOffset());
+
+  // If current offset is less than standard, we're in DST
+  const isDST = date.getTimezoneOffset() < stdOffset;
+
+  // Paris: UTC+1 winter, UTC+2 summer
+  return isDST ? 2 : 1;
 }
 
 /**
- * Get next trading day from a given date
+ * Get current time in Paris
  */
-export function getNextTradingDay(date: Date, holidays: string[]): Date {
-  const nextDay = new Date(date);
-  nextDay.setDate(nextDay.getDate() + 1);
-  while (!isTradingDay(nextDay, holidays)) {
-    nextDay.setDate(nextDay.getDate() + 1);
-  }
-  return nextDay;
+export function getParisTime(): Date {
+  const now = new Date();
+  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+
+  // Simple DST check for Paris (last Sunday of March to last Sunday of October)
+  const year = now.getUTCFullYear();
+  const marchLastSunday = getLastSundayOfMonth(year, 2); // March = 2
+  const octoberLastSunday = getLastSundayOfMonth(year, 9); // October = 9
+
+  const isDST = now >= marchLastSunday && now < octoberLastSunday;
+  const parisOffset = isDST ? 2 : 1; // UTC+2 in summer, UTC+1 in winter
+
+  return new Date(utc + (parisOffset * 3600000));
+}
+
+/**
+ * Get last Sunday of a month at 2:00 AM UTC
+ */
+function getLastSundayOfMonth(year: number, month: number): Date {
+  const lastDay = new Date(Date.UTC(year, month + 1, 0, 2, 0, 0));
+  const dayOfWeek = lastDay.getUTCDay();
+  lastDay.setUTCDate(lastDay.getUTCDate() - dayOfWeek);
+  return lastDay;
+}
+
+/**
+ * Calculate game end date: start + 7 calendar days at 22h30 Paris time
+ */
+export function calculateGameEndDate(startDate: Date): Date {
+  const endDate = new Date(startDate);
+  endDate.setDate(endDate.getDate() + GAME_CONSTANTS.DURATION_DAYS);
+
+  // Set to 22h30 Paris time
+  // Paris is UTC+1 or UTC+2 depending on DST
+  const year = endDate.getFullYear();
+  const marchLastSunday = getLastSundayOfMonth(year, 2);
+  const octoberLastSunday = getLastSundayOfMonth(year, 9);
+  const isDST = endDate >= marchLastSunday && endDate < octoberLastSunday;
+  const parisOffset = isDST ? 2 : 1;
+
+  // 22:30 Paris = (22:30 - offset) UTC
+  const utcHours = GAME_CONSTANTS.END_HOUR_PARIS - parisOffset;
+  endDate.setUTCHours(utcHours, GAME_CONSTANTS.END_MINUTE_PARIS, 0, 0);
+
+  return endDate;
+}
+
+/**
+ * Check if current time is past game end time
+ */
+export function isGameEnded(endDate: Date): boolean {
+  return new Date() >= endDate;
+}
+
+// ============================================
+// TRADING DAY HELPERS
+// ============================================
+
+// US Market holidays 2024-2026
+const US_HOLIDAYS = [
+  '2024-01-01', '2024-01-15', '2024-02-19', '2024-03-29', '2024-05-27',
+  '2024-06-19', '2024-07-04', '2024-09-02', '2024-11-28', '2024-12-25',
+  '2025-01-01', '2025-01-20', '2025-02-17', '2025-04-18', '2025-05-26',
+  '2025-06-19', '2025-07-04', '2025-09-01', '2025-11-27', '2025-12-25',
+  '2026-01-01', '2026-01-19', '2026-02-16', '2026-04-03', '2026-05-25',
+  '2026-06-19', '2026-07-03', '2026-09-07', '2026-11-26', '2026-12-25',
+];
+
+// French Market holidays (Euronext Paris) 2024-2026
+const FR_HOLIDAYS = [
+  '2024-01-01', '2024-03-29', '2024-04-01', '2024-05-01', '2024-12-25', '2024-12-26',
+  '2025-01-01', '2025-04-18', '2025-04-21', '2025-05-01', '2025-12-25', '2025-12-26',
+  '2026-01-01', '2026-04-03', '2026-04-06', '2026-05-01', '2026-12-25',
+];
+
+/**
+ * Check if a date is a weekend
+ */
+export function isWeekend(date: Date): boolean {
+  const day = date.getDay();
+  return day === 0 || day === 6;
 }
 
 /**
@@ -47,102 +147,122 @@ export function formatDateString(date: Date): string {
 }
 
 /**
- * Parse date string to Date object (assumes UTC)
+ * Get yesterday's date
  */
-export function parseDateString(dateStr: string): Date {
-  return new Date(dateStr + 'T00:00:00Z');
+export function getYesterday(date: Date = new Date()): Date {
+  const yesterday = new Date(date);
+  yesterday.setDate(yesterday.getDate() - 1);
+  return yesterday;
 }
 
 /**
- * Get market close time for a date (4 PM ET)
+ * Get the last trading day before a given date (J-1)
+ * This accounts for weekends and holidays
  */
-export function getMarketCloseTime(date: Date): Date {
-  const closeTime = new Date(date);
-  closeTime.setUTCHours(20, 0, 0, 0); // 4 PM ET = 20:00 UTC (during EDT)
-  return closeTime;
-}
+export function getLastTradingDay(date: Date = new Date()): Date {
+  const checkDate = new Date(date);
+  checkDate.setDate(checkDate.getDate() - 1); // Start from yesterday
 
-/**
- * Calculate end date based on start date and duration
- */
-export function calculateEndDate(startDate: Date, durationDays: number, holidays: string[]): Date {
-  let tradingDaysRemaining = durationDays;
-  const endDate = new Date(startDate);
+  // Keep going back until we find a trading day
+  while (true) {
+    const dateStr = formatDateString(checkDate);
+    const day = checkDate.getDay();
 
-  while (tradingDaysRemaining > 0) {
-    endDate.setDate(endDate.getDate() + 1);
-    if (isTradingDay(endDate, holidays)) {
-      tradingDaysRemaining--;
+    // Check if it's a weekend
+    if (day === 0 || day === 6) {
+      checkDate.setDate(checkDate.getDate() - 1);
+      continue;
     }
+
+    // Check if it's a US or French holiday
+    if (US_HOLIDAYS.includes(dateStr) || FR_HOLIDAYS.includes(dateStr)) {
+      checkDate.setDate(checkDate.getDate() - 1);
+      continue;
+    }
+
+    // It's a valid trading day
+    break;
   }
 
-  return endDate;
+  return checkDate;
 }
 
-/**
- * Validate email format
- */
-export function isValidEmail(email: string): boolean {
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  return emailRegex.test(email);
-}
+// ============================================
+// VALIDATION HELPERS
+// ============================================
 
 /**
- * Validate match name
+ * Validate game name (3-50 chars, alphanumeric + spaces/punctuation)
  */
-export function isValidMatchName(name: string): boolean {
+export function isValidGameName(name: string): boolean {
   if (!name || name.length < 3 || name.length > 50) {
     return false;
   }
-  // Allow alphanumeric, spaces, and basic punctuation
-  const nameRegex = /^[a-zA-Z0-9\s\-_']+$/;
+  const nameRegex = /^[a-zA-Z0-9\s\-_'àâäéèêëïîôùûüÿçÀÂÄÉÈÊËÏÎÔÙÛÜŸÇ]+$/;
   return nameRegex.test(name);
 }
 
 /**
- * Validate stock symbol format
+ * Validate nickname (2-20 chars)
  */
-export function isValidSymbol(symbol: string): boolean {
-  const symbolRegex = /^[A-Z]{1,5}$/;
-  return symbolRegex.test(symbol);
+export function isValidNickname(nickname: string): boolean {
+  if (!nickname || nickname.length < 2 || nickname.length > 20) {
+    return false;
+  }
+  const nicknameRegex = /^[a-zA-Z0-9\s\-_àâäéèêëïîôùûüÿçÀÂÄÉÈÊËÏÎÔÙÛÜŸÇ]+$/;
+  return nicknameRegex.test(nickname);
 }
 
 /**
- * Validate exchange name
+ * Validate stock ticker format
+ * Supports: US tickers (AAPL), French tickers (MC.PA)
  */
-export function isValidExchange(exchange: string): boolean {
-  const validExchanges = ['NYSE', 'NASDAQ', 'AMEX'];
-  return validExchanges.includes(exchange);
+export function isValidTicker(ticker: string): boolean {
+  // US ticker: 1-5 uppercase letters
+  const usTickerRegex = /^[A-Z]{1,5}$/;
+  // French ticker: 1-5 uppercase letters + .PA suffix
+  const frTickerRegex = /^[A-Z]{1,5}\.PA$/;
+
+  return usTickerRegex.test(ticker) || frTickerRegex.test(ticker);
 }
 
 /**
- * Validate portfolio allocations
+ * Validate portfolio allocations for v2.0
+ * - Exactly 3 positions
+ * - Total must equal 10,000 Credits
+ * - No min/max per position (free allocation)
  */
-export function validatePortfolioAllocations(positions: Array<{ allocationCents: number }>): {
-  valid: boolean;
-  error?: string;
-} {
-  if (positions.length !== 5) {
-    return { valid: false, error: 'Portfolio must have exactly 5 positions' };
+export function validatePortfolioAllocations(
+  positions: Array<{ budgetInvested: number }>
+): { valid: boolean; error?: string } {
+  if (positions.length !== GAME_CONSTANTS.REQUIRED_POSITIONS) {
+    return {
+      valid: false,
+      error: `Portfolio must have exactly ${GAME_CONSTANTS.REQUIRED_POSITIONS} positions`,
+    };
   }
 
-  let totalCents = 0;
+  let total = 0;
   for (const pos of positions) {
-    if (pos.allocationCents < 50000) { // $500 minimum
-      return { valid: false, error: 'Each position must be at least $500 (5%)' };
+    if (pos.budgetInvested <= 0) {
+      return { valid: false, error: 'Each position must have a positive allocation' };
     }
-    if (pos.allocationCents > 500000) { // $5000 maximum
-      return { valid: false, error: 'Each position cannot exceed $5,000 (50%)' };
-    }
-    totalCents += pos.allocationCents;
+    total += pos.budgetInvested;
   }
 
-  if (totalCents !== 1000000) { // $10,000 total
-    return { valid: false, error: `Total allocation must be exactly $10,000 (got $${totalCents / 100})` };
+  if (Math.abs(total - GAME_CONSTANTS.TOTAL_BUDGET) > 0.01) {
+    return {
+      valid: false,
+      error: `Total allocation must be exactly ${GAME_CONSTANTS.TOTAL_BUDGET} Credits (got ${total})`,
+    };
   }
 
   return { valid: true };
 }
+
+// ============================================
+// CALCULATION HELPERS
+// ============================================
 
 /**
  * Round to specified decimal places
@@ -155,10 +275,29 @@ export function roundTo(value: number, decimals: number): number {
 /**
  * Calculate percentage return
  */
-export function calculateReturn(startPrice: number, endPrice: number): number {
-  if (startPrice === 0) return 0;
-  return ((endPrice - startPrice) / startPrice) * 100;
+export function calculateReturn(initialPrice: number, finalPrice: number): number {
+  if (initialPrice === 0) return 0;
+  return ((finalPrice - initialPrice) / initialPrice) * 100;
 }
+
+/**
+ * Calculate position quantity from budget and price
+ */
+export function calculateQuantity(budgetInvested: number, price: number): number {
+  if (price === 0) return 0;
+  return budgetInvested / price;
+}
+
+/**
+ * Calculate position value from quantity and price
+ */
+export function calculatePositionValue(quantity: number, price: number): number {
+  return quantity * price;
+}
+
+// ============================================
+// AUDIT LOGGING
+// ============================================
 
 /**
  * Create audit log entry
@@ -167,7 +306,7 @@ export async function createAuditLog(
   db: admin.firestore.Firestore,
   action: string,
   actorId: string,
-  targetType: 'USER' | 'MATCH' | 'PORTFOLIO',
+  targetType: 'USER' | 'GAME' | 'PLAYER',
   targetId: string,
   details: Record<string, unknown> = {}
 ): Promise<void> {
@@ -184,25 +323,15 @@ export async function createAuditLog(
   });
 }
 
-/**
- * Map exchange codes from API to standard format
- */
-export function mapExchangeCode(apiExchange: string): string {
-  const exchangeMap: Record<string, string> = {
-    'XNAS': 'NASDAQ',
-    'XNYS': 'NYSE',
-    'XASE': 'AMEX',
-    'ARCX': 'NYSE',
-    'BATS': 'NYSE',
-  };
-  return exchangeMap[apiExchange] || apiExchange;
-}
+// ============================================
+// MISC HELPERS
+// ============================================
 
 /**
  * Sleep for specified milliseconds
  */
 export function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**

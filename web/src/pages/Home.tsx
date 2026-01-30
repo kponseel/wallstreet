@@ -22,13 +22,13 @@ export function HomePage() {
         <div className="grid grid-cols-2 gap-4">
           <div className="text-center p-3 bg-gray-50 rounded-lg">
             <div className="text-2xl font-bold text-primary-600">
-              {user?.stats?.matchesPlayed || 0}
+              {user?.stats?.gamesPlayed || 0}
             </div>
-            <div className="text-sm text-gray-600">Matches Played</div>
+            <div className="text-sm text-gray-600">Games Played</div>
           </div>
           <div className="text-center p-3 bg-gray-50 rounded-lg">
             <div className="text-2xl font-bold text-success-600">
-              {user?.stats?.matchesWon || 0}
+              {user?.stats?.gamesWon || 0}
             </div>
             <div className="text-sm text-gray-600">Wins</div>
           </div>
