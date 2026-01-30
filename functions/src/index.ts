@@ -16,6 +16,7 @@ export {
   joinGame,
   leaveGame,
   cancelGame,
+  updateGame,
   launchGame,
   getGameByCode,
   getGamePlayers,

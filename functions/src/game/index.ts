@@ -386,6 +386,64 @@ export const cancelGame = functions.https.onCall(
 );
 
 /**
+ * Update game settings (Admin only, draft games only)
+ */
+export const updateGame = functions.https.onCall(
+  async (data: { gameCode: string; name?: string }, context) => {
+    if (!context.auth) {
+      throw new functions.https.HttpsError('unauthenticated', 'Must be logged in');
+    }
+
+    const uid = context.auth.uid;
+    const { gameCode, name } = data;
+
+    const gameRef = db.collection('games').doc(gameCode);
+    const gameDoc = await gameRef.get();
+
+    if (!gameDoc.exists) {
+      throw new functions.https.HttpsError('not-found', 'Game not found');
+    }
+
+    const game = gameDoc.data() as Game;
+
+    // Verify creator
+    if (game.creatorId !== uid) {
+      throw new functions.https.HttpsError('permission-denied', 'Only creator can update game');
+    }
+
+    // Only allow updates in DRAFT status
+    if (game.status !== 'DRAFT') {
+      throw new functions.https.HttpsError(
+        'failed-precondition',
+        'Can only update game settings before launch'
+      );
+    }
+
+    // Validate and update name
+    const updates: Record<string, string> = {};
+    if (name !== undefined) {
+      if (!isValidGameName(name)) {
+        throw new functions.https.HttpsError(
+          'invalid-argument',
+          'Game name must be 3-50 characters'
+        );
+      }
+      updates.name = name;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return { success: true }; // Nothing to update
+    }
+
+    await gameRef.update(updates);
+
+    await createAuditLog(db, 'GAME_UPDATED', uid, 'GAME', gameCode, updates);
+
+    return { success: true };
+  }
+);
+
+/**
  * Launch a game (Admin only)
  * This freezes J-1 prices and starts the 7-day countdown
  */
@@ -423,11 +481,11 @@ export const launchGame = functions.https.onCall(
       .where('gameCode', '==', gameCode)
       .get();
 
-    // Must have at least 2 players
-    if (playersSnapshot.size < 2) {
+    // Must have at least 1 player
+    if (playersSnapshot.size < 1) {
       throw new functions.https.HttpsError(
         'failed-precondition',
-        'Need at least 2 players to start the game'
+        'Need at least 1 player to start the game'
       );
     }
 

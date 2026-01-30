@@ -30,6 +30,9 @@ export function MatchDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [timeRemaining, setTimeRemaining] = useState<string>('');
   const [currentPlayerId, setCurrentPlayerId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [savingName, setSavingName] = useState(false);
 
   const isCreator = user?.uid === game?.creatorId;
 
@@ -138,6 +141,34 @@ export function MatchDetailPage() {
     }
   };
 
+  const handleUpdateName = async () => {
+    if (!gameCode || !newName.trim() || newName.trim().length < 3) return;
+    setSavingName(true);
+    setError(null);
+
+    try {
+      const updateGame = httpsCallable(functions, 'updateGame');
+      const result = await updateGame({ gameCode, name: newName.trim() });
+      const data = result.data as { success: boolean };
+
+      if (data.success) {
+        setGame((prev) => prev ? { ...prev, name: newName.trim() } : prev);
+        setEditingName(false);
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Erreur lors de la modification');
+    } finally {
+      setSavingName(false);
+    }
+  };
+
+  const startEditingName = () => {
+    if (game) {
+      setNewName(game.name);
+      setEditingName(true);
+    }
+  };
+
   const getStatusBadge = (status: string) => {
     const statusStyles: Record<string, { bg: string; text: string; label: string }> = {
       DRAFT: { bg: 'bg-gray-100', text: 'text-gray-700', label: 'En attente' },
@@ -181,7 +212,7 @@ export function MatchDetailPage() {
     );
   }
 
-  const allPlayersReady = players.length >= 2 && players.every((p) => p.isReady);
+  const allPlayersReady = players.length >= 1 && players.every((p) => p.isReady);
   const currentPlayer = players.find((p) => p.playerId === currentPlayerId);
 
   return (
@@ -190,7 +221,45 @@ export function MatchDetailPage() {
       <div className="card p-6">
         <div className="flex justify-between items-start mb-4">
           <div>
-            <h2 className="text-xl font-bold">{game.name}</h2>
+            {editingName && isCreator && game.status === 'DRAFT' ? (
+              <div className="flex items-center gap-2 mb-1">
+                <input
+                  type="text"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  className="input text-lg font-bold py-1"
+                  minLength={3}
+                  maxLength={50}
+                  autoFocus
+                />
+                <button
+                  onClick={handleUpdateName}
+                  disabled={savingName || newName.trim().length < 3}
+                  className="text-green-600 hover:text-green-700 text-lg"
+                >
+                  {savingName ? '...' : '✓'}
+                </button>
+                <button
+                  onClick={() => setEditingName(false)}
+                  className="text-gray-500 hover:text-gray-700 text-lg"
+                >
+                  ✕
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <h2 className="text-xl font-bold">{game.name}</h2>
+                {isCreator && game.status === 'DRAFT' && (
+                  <button
+                    onClick={startEditingName}
+                    className="text-gray-400 hover:text-gray-600 text-sm"
+                    title="Modifier le nom"
+                  >
+                    ✎
+                  </button>
+                )}
+              </div>
+            )}
             <p className="text-gray-500 text-sm">Code: {game.code}</p>
             {isCreator && (
               <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">Admin</span>
@@ -404,8 +473,8 @@ export function MatchDetailPage() {
               </button>
               {!allPlayersReady && (
                 <p className="text-sm text-gray-500 text-center">
-                  {players.length < 2
-                    ? 'Il faut au moins 2 joueurs pour lancer la partie'
+                  {players.length === 0
+                    ? 'Il faut au moins 1 joueur pour lancer la partie'
                     : 'Tous les joueurs doivent avoir compose leur portefeuille'}
                 </p>
               )}
