@@ -2,6 +2,10 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // ============================================
+    // WALLSTREET v2.0 - FIRESTORE SECURITY RULES
+    // ============================================
+
     // Helper functions
     function isAuthenticated() {
       return request.auth != null;
@@ -18,29 +22,21 @@ service cloud.firestore {
       allow create, delete: if false;
     }
 
-    // Matches collection
-    match /matches/{matchId} {
-      // All authenticated users can read public matches
-      // Private match access controlled by Cloud Functions
+    // Games collection (formerly matches)
+    match /games/{gameCode} {
+      // All authenticated users can read games
       allow read: if isAuthenticated();
+      // All writes handled by Cloud Functions
       allow create, update, delete: if false;
     }
 
-    // Portfolios collection
-    match /portfolios/{portfolioId} {
+    // Players collection (combines portfolio + participant)
+    match /players/{playerId} {
+      // All authenticated users can read players
+      // (portfolios hidden in DRAFT mode via Cloud Functions)
       allow read: if isAuthenticated();
-      allow update: if isAuthenticated() &&
-        resource.data.userId == request.auth.uid &&
-        resource.data.isLocked == false;
-      allow create, delete: if false;
-    }
-
-    // Match Participants
-    match /matchParticipants/{participantId} {
-      allow read: if isAuthenticated();
-      allow update: if isAuthenticated() &&
-        resource.data.userId == request.auth.uid;
-      allow create, delete: if false;
+      // All writes handled by Cloud Functions
+      allow create, update, delete: if false;
     }
 
     // Price Snapshots - read only
@@ -81,6 +77,22 @@ service cloud.firestore {
     // Idempotency Cache - no client access
     match /idempotencyCache/{cacheId} {
       allow read, write: if false;
+    }
+
+    // Legacy collections (for migration period)
+    match /matches/{matchId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    match /portfolios/{portfolioId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    match /matchParticipants/{participantId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
     }
   }
 }
