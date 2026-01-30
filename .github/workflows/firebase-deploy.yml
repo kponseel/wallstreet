@@ -16,7 +16,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Install Firebase CLI
         run: npm install -g firebase-tools
@@ -60,7 +60,7 @@ jobs:
         run: |
           echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > /tmp/firebase-key.json
           export GOOGLE_APPLICATION_CREDENTIALS=/tmp/firebase-key.json
-          firebase deploy --only functions --project wall-street-fantasy-league
+          firebase deploy --only functions --force --project wall-street-fantasy-league
 
       - name: Deploy to Firebase Hosting
         uses: FirebaseExtended/action-hosting-deploy@v0
