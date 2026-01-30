@@ -33,12 +33,12 @@ export function ProfilePage() {
         <h3 className="font-medium mb-4">Statistics</h3>
         <div className="space-y-3">
           <div className="flex justify-between">
-            <span className="text-gray-600">Matches Played</span>
-            <span className="font-medium">{user?.stats?.matchesPlayed || 0}</span>
+            <span className="text-gray-600">Games Played</span>
+            <span className="font-medium">{user?.stats?.gamesPlayed || 0}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-gray-600">Matches Won</span>
-            <span className="font-medium">{user?.stats?.matchesWon || 0}</span>
+            <span className="text-gray-600">Games Won</span>
+            <span className="font-medium">{user?.stats?.gamesWon || 0}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-gray-600">Total Returns</span>

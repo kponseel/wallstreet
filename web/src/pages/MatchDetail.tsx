@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import { httpsCallable } from 'firebase/functions';
 import { functions } from '@/services/firebase';
 import { useAuthStore } from '@/hooks/useAuthStore';
@@ -22,7 +22,6 @@ interface PlayerInfo {
 export function MatchDetailPage() {
   const { gameCode } = useParams<{ gameCode: string }>();
   const { user } = useAuthStore();
-  const navigate = useNavigate();
   const [game, setGame] = useState<Game | null>(null);
   const [players, setPlayers] = useState<PlayerInfo[]>([]);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
