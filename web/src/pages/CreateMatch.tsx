@@ -9,6 +9,7 @@ export function CreateMatchPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState('');
+  const [nickname, setNickname] = useState('');
   const [gameCode, setGameCode] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -19,10 +20,14 @@ export function CreateMatchPage() {
 
     try {
       const createGame = httpsCallable(functions, 'createGame');
-      const result = await createGame({ name });
+      const result = await createGame({ name, nickname });
 
-      const data = result.data as { success: boolean; data?: { gameCode: string } };
+      const data = result.data as { success: boolean; data?: { gameCode: string; playerId: string } };
       if (data.success && data.data?.gameCode) {
+        // Store playerId in localStorage for this game
+        if (data.data.playerId) {
+          localStorage.setItem(`player_${data.data.gameCode}`, data.data.playerId);
+        }
         setGameCode(data.data.gameCode);
       }
     } catch (err: unknown) {
@@ -119,6 +124,22 @@ export function CreateMatchPage() {
           />
         </div>
 
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Ton pseudo
+          </label>
+          <input
+            type="text"
+            value={nickname}
+            onChange={(e) => setNickname(e.target.value)}
+            className="input"
+            placeholder="ex: Le Loup, Warren B., ..."
+            minLength={2}
+            maxLength={20}
+            required
+          />
+        </div>
+
         <div className="bg-gray-50 p-4 rounded-lg text-sm text-gray-600">
           <p className="font-medium mb-2">Comment ca marche :</p>
           <ol className="list-decimal list-inside space-y-1">
@@ -132,7 +153,7 @@ export function CreateMatchPage() {
 
         <button
           type="submit"
-          disabled={loading || name.length < 3}
+          disabled={loading || name.length < 3 || nickname.length < 2}
           className="btn-primary w-full"
         >
           {loading ? 'Creation...' : 'Creer la partie'}

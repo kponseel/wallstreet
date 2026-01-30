@@ -39,7 +39,7 @@ export const createGame = functions.https.onCall(
     }
 
     const uid = context.auth.uid;
-    const { name } = data;
+    const { name, nickname } = data;
 
     // Validate game name
     if (!isValidGameName(name)) {
@@ -86,16 +86,30 @@ export const createGame = functions.https.onCall(
       throw new functions.https.HttpsError('internal', 'Failed to generate unique game code');
     }
 
-    // Create game document
+    // Use nickname or fallback to displayName
+    const creatorNickname = nickname?.trim() || userData.displayName;
+
+    // Validate nickname
+    if (!isValidNickname(creatorNickname)) {
+      throw new functions.https.HttpsError(
+        'invalid-argument',
+        'Nickname must be 2-20 characters'
+      );
+    }
+
+    // Generate player ID for creator
+    const playerId = generatePlayerId();
+
+    // Create game document with creator as first player
     const gameData: Game = {
       code: gameCode!,
       name,
       creatorId: uid,
-      creatorDisplayName: userData.displayName,
+      creatorDisplayName: creatorNickname,
       status: 'DRAFT',
       startDate: null,
       endDate: null,
-      playerCount: 0,
+      playerCount: 1,  // Creator is automatically the first player
       maxPlayers: GAME_CONSTANTS.MAX_PLAYERS,
       initialPricesSnapshot: null,
       tickers: [],
@@ -105,16 +119,34 @@ export const createGame = functions.https.onCall(
       endedAt: null,
     };
 
-    await db.collection('games').doc(gameCode!).set(gameData);
+    // Create player document for creator
+    const playerData: Player = {
+      playerId,
+      gameCode: gameCode!,
+      userId: uid,
+      nickname: creatorNickname,
+      portfolio: [],
+      totalBudget: GAME_CONSTANTS.TOTAL_BUDGET,
+      isReady: false,
+      joinedAt: Timestamp.now(),
+      submittedAt: null,
+    };
 
-    await createAuditLog(db, 'GAME_CREATED', uid, 'GAME', gameCode!, { name });
+    // Save both documents
+    const batch = db.batch();
+    batch.set(db.collection('games').doc(gameCode!), gameData);
+    batch.set(db.collection('players').doc(playerId), playerData);
+    await batch.commit();
 
-    functions.logger.info(`Game created: ${gameCode!} by ${uid}`);
+    await createAuditLog(db, 'GAME_CREATED', uid, 'GAME', gameCode!, { name, playerId });
+
+    functions.logger.info(`Game created: ${gameCode!} by ${uid}, playerId: ${playerId}`);
 
     return {
       success: true,
       data: {
         gameCode: gameCode!,
+        playerId,
       },
     };
   }

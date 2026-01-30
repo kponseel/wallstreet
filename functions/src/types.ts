@@ -269,6 +269,7 @@ export interface ApiResponse<T = unknown> {
 
 export interface CreateGameInput {
   name: string;
+  nickname?: string;  // Creator's nickname (defaults to displayName)
 }
 
 export interface JoinGameInput {
