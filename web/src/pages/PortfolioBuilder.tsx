@@ -1,28 +1,44 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { httpsCallable } from 'firebase/functions';
 import { functions } from '@/services/firebase';
-import type { Symbol } from '@/types';
+import { GAME_CONSTANTS, type Symbol, type Market } from '@/types';
 
-interface Position {
-  symbol: string;
-  exchange: string;
+interface PositionDraft {
+  ticker: string;
   companyName: string;
-  allocationPercent: number;
+  market: Market;
+  budgetInvested: number;
 }
 
 export function PortfolioBuilderPage() {
-  const { matchId } = useParams();
+  const { gameCode } = useParams<{ gameCode: string }>();
   const navigate = useNavigate();
-  const [positions, setPositions] = useState<Position[]>([]);
+  const [positions, setPositions] = useState<PositionDraft[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Symbol[]>([]);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [playerId, setPlayerId] = useState<string | null>(null);
 
-  const totalAllocation = positions.reduce((sum, p) => sum + p.allocationPercent, 0);
-  const isValid = positions.length === 5 && totalAllocation === 100;
+  // Get playerId from localStorage
+  useEffect(() => {
+    if (gameCode) {
+      const storedPlayerId = localStorage.getItem(`player_${gameCode}`);
+      if (storedPlayerId) {
+        setPlayerId(storedPlayerId);
+      } else {
+        // If no playerId, redirect to join page
+        navigate('/games');
+      }
+    }
+  }, [gameCode, navigate]);
+
+  const totalBudget = positions.reduce((sum, p) => sum + p.budgetInvested, 0);
+  const remainingBudget = GAME_CONSTANTS.TOTAL_BUDGET - totalBudget;
+  const isValid = positions.length === GAME_CONSTANTS.REQUIRED_POSITIONS &&
+                  Math.abs(totalBudget - GAME_CONSTANTS.TOTAL_BUDGET) < 1;
 
   const handleSearch = async (query: string) => {
     setSearchQuery(query);
@@ -37,7 +53,11 @@ export function PortfolioBuilderPage() {
       const result = await searchSymbols({ query, limit: 10 });
       const data = result.data as { success: boolean; data?: { symbols: Symbol[] } };
       if (data.success && data.data?.symbols) {
-        setSearchResults(data.data.symbols);
+        // Filter out already selected stocks
+        const filtered = data.data.symbols.filter(
+          (s) => !positions.some((p) => p.ticker === s.ticker)
+        );
+        setSearchResults(filtered);
       }
     } catch {
       setSearchResults([]);
@@ -47,16 +67,19 @@ export function PortfolioBuilderPage() {
   };
 
   const addPosition = (symbol: Symbol) => {
-    if (positions.length >= 5) return;
-    if (positions.some((p) => p.symbol === symbol.symbol)) return;
+    if (positions.length >= GAME_CONSTANTS.REQUIRED_POSITIONS) return;
+    if (positions.some((p) => p.ticker === symbol.ticker)) return;
+
+    // Calculate default allocation (split remaining budget)
+    const defaultBudget = Math.floor(remainingBudget / (GAME_CONSTANTS.REQUIRED_POSITIONS - positions.length));
 
     setPositions([
       ...positions,
       {
-        symbol: symbol.symbol,
-        exchange: symbol.exchange,
+        ticker: symbol.ticker,
         companyName: symbol.companyName,
-        allocationPercent: 20,
+        market: symbol.market,
+        budgetInvested: defaultBudget,
       },
     ]);
     setSearchQuery('');
@@ -67,81 +90,134 @@ export function PortfolioBuilderPage() {
     setPositions(positions.filter((_, i) => i !== index));
   };
 
-  const updateAllocation = (index: number, value: number) => {
+  const updateBudget = (index: number, value: number) => {
     const newPositions = [...positions];
-    newPositions[index].allocationPercent = Math.min(50, Math.max(5, value));
+    newPositions[index].budgetInvested = Math.max(0, Math.min(GAME_CONSTANTS.TOTAL_BUDGET, value));
+    setPositions(newPositions);
+  };
+
+  const distributeEvenly = () => {
+    if (positions.length === 0) return;
+    const evenBudget = Math.floor(GAME_CONSTANTS.TOTAL_BUDGET / positions.length);
+    const remainder = GAME_CONSTANTS.TOTAL_BUDGET - evenBudget * positions.length;
+
+    const newPositions = positions.map((p, i) => ({
+      ...p,
+      budgetInvested: evenBudget + (i === 0 ? remainder : 0),
+    }));
+    setPositions(newPositions);
+  };
+
+  const allocateAllToLast = () => {
+    if (positions.length === 0) return;
+    const newPositions = positions.map((p, i) => ({
+      ...p,
+      budgetInvested: i === positions.length - 1 ? remainingBudget + p.budgetInvested : p.budgetInvested,
+    }));
     setPositions(newPositions);
   };
 
   const handleSubmit = async () => {
-    if (!isValid) return;
+    if (!isValid || !playerId || !gameCode) return;
     setSubmitting(true);
     setError(null);
 
     try {
       const submitPortfolio = httpsCallable(functions, 'submitPortfolio');
       const result = await submitPortfolio({
-        matchId,
+        gameCode,
+        playerId,
         positions: positions.map((p) => ({
-          symbol: p.symbol,
-          exchange: p.exchange,
-          allocationCents: p.allocationPercent * 10000, // Convert % to cents of $10,000
+          ticker: p.ticker,
+          budgetInvested: p.budgetInvested,
         })),
       });
 
       const data = result.data as { success: boolean };
       if (data.success) {
-        navigate(`/matches/${matchId}`);
+        navigate(`/games/${gameCode}`);
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to submit portfolio');
+      setError(err instanceof Error ? err.message : 'Erreur lors de la soumission');
     } finally {
       setSubmitting(false);
     }
   };
 
+  const getMarketBadgeColor = (market: Market) => {
+    switch (market) {
+      case 'NASDAQ': return 'bg-blue-100 text-blue-800';
+      case 'NYSE': return 'bg-green-100 text-green-800';
+      case 'CAC40': return 'bg-purple-100 text-purple-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
+  };
+
   return (
     <div className="space-y-6">
-      <h2 className="text-xl font-semibold">Build Your Portfolio</h2>
+      <h2 className="text-xl font-semibold">Compose ton Portefeuille</h2>
 
       {error && (
-        <div className="bg-danger-50 text-danger-600 p-3 rounded-lg text-sm">
+        <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm">
           {error}
         </div>
       )}
 
+      {/* Budget Summary */}
+      <div className="card p-4">
+        <div className="flex justify-between items-center">
+          <div>
+            <p className="text-sm text-gray-600">Budget total</p>
+            <p className="text-2xl font-bold">{GAME_CONSTANTS.TOTAL_BUDGET.toLocaleString()} Credits</p>
+          </div>
+          <div className="text-right">
+            <p className="text-sm text-gray-600">Restant</p>
+            <p className={`text-2xl font-bold ${remainingBudget === 0 ? 'text-green-600' : remainingBudget < 0 ? 'text-red-600' : 'text-orange-600'}`}>
+              {remainingBudget.toLocaleString()}
+            </p>
+          </div>
+        </div>
+        <div className="mt-3 h-2 bg-gray-200 rounded-full overflow-hidden">
+          <div
+            className={`h-full transition-all ${totalBudget > GAME_CONSTANTS.TOTAL_BUDGET ? 'bg-red-500' : 'bg-green-500'}`}
+            style={{ width: `${Math.min(100, (totalBudget / GAME_CONSTANTS.TOTAL_BUDGET) * 100)}%` }}
+          />
+        </div>
+      </div>
+
       {/* Search */}
       <div className="card p-4">
         <label className="block text-sm font-medium text-gray-700 mb-2">
-          Search Stocks ({positions.length}/5)
+          Rechercher des actions ({positions.length}/{GAME_CONSTANTS.REQUIRED_POSITIONS})
         </label>
         <input
           type="text"
           value={searchQuery}
           onChange={(e) => handleSearch(e.target.value)}
           className="input"
-          placeholder="Search by symbol (e.g., AAPL)"
-          disabled={positions.length >= 5}
+          placeholder="Ticker ou nom (ex: AAPL, LVMH, Tesla...)"
+          disabled={positions.length >= GAME_CONSTANTS.REQUIRED_POSITIONS}
         />
 
         {loading && (
-          <div className="mt-2 text-center text-gray-500 text-sm">Searching...</div>
+          <div className="mt-2 text-center text-gray-500 text-sm">Recherche...</div>
         )}
 
         {!loading && searchResults.length > 0 && (
-          <div className="mt-2 border border-gray-200 rounded-lg divide-y max-h-48 overflow-auto">
+          <div className="mt-2 border border-gray-200 rounded-lg divide-y max-h-64 overflow-auto">
             {searchResults.map((symbol) => (
               <button
-                key={`${symbol.symbol}_${symbol.exchange}`}
+                key={symbol.ticker}
                 onClick={() => addPosition(symbol)}
                 className="w-full px-3 py-2 text-left hover:bg-gray-50 flex justify-between items-center"
-                disabled={positions.some((p) => p.symbol === symbol.symbol)}
               >
-                <span>
-                  <span className="font-medium">{symbol.symbol}</span>
-                  <span className="text-gray-500 ml-2">{symbol.companyName}</span>
+                <div>
+                  <span className="font-medium">{symbol.ticker}</span>
+                  <span className="text-gray-500 text-sm ml-2">{symbol.companyName}</span>
+                </div>
+                <span className={`text-xs px-2 py-1 rounded ${getMarketBadgeColor(symbol.market)}`}>
+                  {symbol.market}
                 </span>
-                <span className="text-xs text-gray-400">{symbol.exchange}</span>
               </button>
             ))}
           </div>
@@ -150,77 +226,96 @@ export function PortfolioBuilderPage() {
 
       {/* Positions */}
       <div className="card p-4 space-y-4">
-        <h3 className="font-medium">Your Positions</h3>
+        <div className="flex justify-between items-center">
+          <h3 className="font-medium">Tes Positions</h3>
+          {positions.length > 0 && (
+            <button onClick={distributeEvenly} className="text-sm text-primary-600 hover:underline">
+              Repartir egalement
+            </button>
+          )}
+        </div>
 
         {positions.length === 0 ? (
-          <p className="text-gray-500 text-sm text-center py-4">
-            Search and add 5 stocks to your portfolio
+          <p className="text-gray-500 text-sm text-center py-8">
+            Recherche et ajoute {GAME_CONSTANTS.REQUIRED_POSITIONS} actions a ton portefeuille
           </p>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-4">
             {positions.map((position, index) => (
-              <div key={position.symbol} className="bg-gray-50 p-3 rounded-lg">
-                <div className="flex justify-between items-center mb-2">
+              <div key={position.ticker} className="bg-gray-50 p-4 rounded-lg">
+                <div className="flex justify-between items-start mb-3">
                   <div>
-                    <span className="font-medium">{position.symbol}</span>
-                    <span className="text-gray-500 text-sm ml-2">
-                      {position.companyName}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-lg">{position.ticker}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded ${getMarketBadgeColor(position.market)}`}>
+                        {position.market}
+                      </span>
+                    </div>
+                    <span className="text-gray-500 text-sm">{position.companyName}</span>
                   </div>
                   <button
                     onClick={() => removePosition(index)}
-                    className="text-danger-500 hover:text-danger-700"
+                    className="text-red-500 hover:text-red-700 text-lg"
                   >
                     ✕
                   </button>
                 </div>
-                <div className="flex items-center gap-3">
-                  <input
-                    type="range"
-                    min={5}
-                    max={50}
-                    value={position.allocationPercent}
-                    onChange={(e) => updateAllocation(index, Number(e.target.value))}
-                    className="flex-1"
-                  />
-                  <span className="w-12 text-right font-mono">
-                    {position.allocationPercent}%
-                  </span>
+
+                <div className="space-y-2">
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="range"
+                      min={0}
+                      max={GAME_CONSTANTS.TOTAL_BUDGET}
+                      step={100}
+                      value={position.budgetInvested}
+                      onChange={(e) => updateBudget(index, Number(e.target.value))}
+                      className="flex-1"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={0}
+                      max={GAME_CONSTANTS.TOTAL_BUDGET}
+                      step={100}
+                      value={position.budgetInvested}
+                      onChange={(e) => updateBudget(index, Number(e.target.value))}
+                      className="input w-32 text-right font-mono"
+                    />
+                    <span className="text-gray-600">Credits</span>
+                    <span className="text-gray-400 text-sm ml-2">
+                      ({((position.budgetInvested / GAME_CONSTANTS.TOTAL_BUDGET) * 100).toFixed(1)}%)
+                    </span>
+                  </div>
                 </div>
               </div>
             ))}
           </div>
         )}
 
-        {/* Total */}
-        <div className="flex justify-between items-center pt-3 border-t">
-          <span className="font-medium">Total Allocation</span>
-          <span
-            className={`font-mono ${
-              totalAllocation === 100
-                ? 'text-success-600'
-                : totalAllocation > 100
-                ? 'text-danger-600'
-                : 'text-gray-600'
-            }`}
+        {positions.length > 0 && remainingBudget > 0 && (
+          <button
+            onClick={allocateAllToLast}
+            className="text-sm text-primary-600 hover:underline"
           >
-            {totalAllocation}%
-          </span>
-        </div>
+            Ajouter le reste ({remainingBudget.toLocaleString()}) a la derniere position
+          </button>
+        )}
       </div>
 
       {/* Validation */}
       <div className="card p-4">
         <h3 className="font-medium mb-2">Validation</h3>
         <ul className="space-y-1 text-sm">
-          <li className={positions.length === 5 ? 'text-success-600' : 'text-gray-500'}>
-            {positions.length === 5 ? '✓' : '○'} Exactly 5 positions
+          <li className={positions.length === GAME_CONSTANTS.REQUIRED_POSITIONS ? 'text-green-600' : 'text-gray-500'}>
+            {positions.length === GAME_CONSTANTS.REQUIRED_POSITIONS ? '✓' : '○'} {GAME_CONSTANTS.REQUIRED_POSITIONS} actions selectionnees
           </li>
-          <li className={totalAllocation === 100 ? 'text-success-600' : 'text-gray-500'}>
-            {totalAllocation === 100 ? '✓' : '○'} Total allocation equals 100%
+          <li className={remainingBudget === 0 ? 'text-green-600' : 'text-gray-500'}>
+            {remainingBudget === 0 ? '✓' : '○'} Budget totalement alloue ({GAME_CONSTANTS.TOTAL_BUDGET.toLocaleString()} Credits)
           </li>
-          <li className={positions.every((p) => p.allocationPercent >= 5) ? 'text-success-600' : 'text-gray-500'}>
-            {positions.every((p) => p.allocationPercent >= 5) ? '✓' : '○'} Each position at least 5%
+          <li className={positions.every((p) => p.budgetInvested > 0) ? 'text-green-600' : 'text-gray-500'}>
+            {positions.every((p) => p.budgetInvested > 0) ? '✓' : '○'} Chaque position a un montant
           </li>
         </ul>
       </div>
@@ -231,7 +326,7 @@ export function PortfolioBuilderPage() {
         disabled={!isValid || submitting}
         className="btn-primary w-full"
       >
-        {submitting ? 'Submitting...' : 'Submit Portfolio'}
+        {submitting ? 'Envoi...' : 'Valider mon portefeuille'}
       </button>
     </div>
   );

@@ -91,11 +91,17 @@ export default function App() {
         }
       >
         <Route path="/" element={<HomePage />} />
-        <Route path="/matches" element={<MatchLobbyPage />} />
-        <Route path="/matches/:matchId" element={<MatchDetailPage />} />
-        <Route path="/matches/:matchId/portfolio" element={<PortfolioBuilderPage />} />
+
+        {/* Game routes (v2.0) */}
+        <Route path="/games" element={<MatchLobbyPage />} />
+        <Route path="/games/:gameCode" element={<MatchDetailPage />} />
+        <Route path="/games/:gameCode/portfolio" element={<PortfolioBuilderPage />} />
         <Route path="/create" element={<CreateMatchPage />} />
         <Route path="/profile" element={<ProfilePage />} />
+
+        {/* Legacy routes - redirect to new paths */}
+        <Route path="/matches" element={<Navigate to="/games" replace />} />
+        <Route path="/matches/:matchId" element={<Navigate to="/games" replace />} />
       </Route>
 
       {/* Fallback */}
