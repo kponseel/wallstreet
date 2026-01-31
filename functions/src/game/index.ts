@@ -106,6 +106,7 @@ export const createGame = functions.https.onCall(
       name,
       creatorId: uid,
       creatorDisplayName: creatorNickname,
+      creatorPlayerId: playerId,  // Store creator's playerId for admin recognition
       status: 'DRAFT',
       startDate: null,
       endDate: null,
@@ -618,7 +619,9 @@ export const getGameByCode = functions.https.onCall(
         status: game.status,
         playerCount: game.playerCount,
         maxPlayers: game.maxPlayers,
+        creatorId: game.creatorId,
         creatorDisplayName: game.creatorDisplayName,
+        creatorPlayerId: game.creatorPlayerId || null,
         startDate: game.startDate?.toDate().toISOString() || null,
         endDate: game.endDate?.toDate().toISOString() || null,
       },

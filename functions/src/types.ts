@@ -45,6 +45,7 @@ export interface Game {
   name: string;
   creatorId: string;
   creatorDisplayName: string;
+  creatorPlayerId: string;  // PlayerId of the creator (for admin recognition)
 
   // Status management
   status: GameStatus;

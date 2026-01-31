@@ -34,8 +34,6 @@ export function MatchDetailPage() {
   const [newName, setNewName] = useState('');
   const [savingName, setSavingName] = useState(false);
 
-  const isCreator = user?.uid === game?.creatorId;
-
   // Get playerId from localStorage
   useEffect(() => {
     if (gameCode) {
@@ -43,6 +41,10 @@ export function MatchDetailPage() {
       setCurrentPlayerId(storedPlayerId);
     }
   }, [gameCode]);
+
+  // Check if current user is the creator (via Firebase auth OR via playerId)
+  const isCreator = (user?.uid && user.uid === game?.creatorId) ||
+                    (currentPlayerId && currentPlayerId === game?.creatorPlayerId);
 
   const fetchGameData = useCallback(async () => {
     if (!gameCode) return;
