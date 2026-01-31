@@ -35,25 +35,6 @@ export function generatePlayerId(): string {
 // ============================================
 
 /**
- * Get Paris timezone offset in hours (handles DST)
- * Paris is UTC+1 in winter, UTC+2 in summer (DST)
- */
-function getParisOffset(date: Date): number {
-  // Create date strings for comparison
-  const jan = new Date(date.getFullYear(), 0, 1);
-  const jul = new Date(date.getFullYear(), 6, 1);
-
-  // Get standard time offset (winter)
-  const stdOffset = Math.max(jan.getTimezoneOffset(), jul.getTimezoneOffset());
-
-  // If current offset is less than standard, we're in DST
-  const isDST = date.getTimezoneOffset() < stdOffset;
-
-  // Paris: UTC+1 winter, UTC+2 summer
-  return isDST ? 2 : 1;
-}
-
-/**
  * Get current time in Paris
  */
 export function getParisTime(): Date {

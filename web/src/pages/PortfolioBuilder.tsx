@@ -21,8 +21,10 @@ export function PortfolioBuilderPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [playerId, setPlayerId] = useState<string | null>(null);
+  const [gameStatus, setGameStatus] = useState<string | null>(null);
+  const [initialLoading, setInitialLoading] = useState(true);
 
-  // Get playerId from localStorage
+  // Get playerId from localStorage and check game status
   useEffect(() => {
     if (gameCode) {
       const storedPlayerId = localStorage.getItem(`player_${gameCode}`);
@@ -31,9 +33,50 @@ export function PortfolioBuilderPage() {
       } else {
         // If no playerId, redirect to join page
         navigate('/games');
+        return;
       }
+
+      // Check game status
+      const checkGameStatus = async () => {
+        try {
+          const getGameByCode = httpsCallable(functions, 'getGameByCode');
+          const result = await getGameByCode({ gameCode });
+          const data = result.data as { success: boolean; data?: { status: string } };
+          if (data.success && data.data) {
+            setGameStatus(data.data.status);
+          }
+        } catch {
+          setError('Impossible de charger la partie');
+        } finally {
+          setInitialLoading(false);
+        }
+      };
+      checkGameStatus();
     }
   }, [gameCode, navigate]);
+
+  // If game is not in DRAFT, show message
+  if (initialLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="animate-spin rounded-full h-8 w-8 border-4 border-primary-600 border-t-transparent"></div>
+      </div>
+    );
+  }
+
+  if (gameStatus && gameStatus !== 'DRAFT') {
+    return (
+      <div className="card p-8 text-center">
+        <h3 className="font-medium mb-2 text-lg">Portefeuille verrouille</h3>
+        <p className="text-gray-600 mb-4">
+          La partie a deja commence. Tu ne peux plus modifier ton portefeuille.
+        </p>
+        <button onClick={() => navigate(`/games/${gameCode}`)} className="btn-primary">
+          Voir la partie
+        </button>
+      </div>
+    );
+  }
 
   const totalBudget = positions.reduce((sum, p) => sum + p.budgetInvested, 0);
   const remainingBudget = GAME_CONSTANTS.TOTAL_BUDGET - totalBudget;

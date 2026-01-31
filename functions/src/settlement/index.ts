@@ -96,6 +96,24 @@ async function settleGame(gameCode: string): Promise<void> {
   const gameDoc = await gameRef.get();
   const game = gameDoc.data() as Game;
 
+  // Check if already settled (prevent duplicate settlement)
+  const existingResults = await db
+    .collection('results')
+    .where('gameCode', '==', gameCode)
+    .limit(1)
+    .get();
+
+  if (!existingResults.empty) {
+    functions.logger.warn(`Game ${gameCode} already settled, skipping`);
+    return;
+  }
+
+  // Also check game status
+  if (game.status === 'ENDED') {
+    functions.logger.warn(`Game ${gameCode} already ended, skipping settlement`);
+    return;
+  }
+
   // Get all players
   const playersSnapshot = await db
     .collection('players')

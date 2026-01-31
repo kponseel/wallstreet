@@ -39,7 +39,7 @@ export const createGame = functions.https.onCall(
     }
 
     const uid = context.auth.uid;
-    const { name } = data;
+    const { name, nickname } = data;
 
     // Validate game name
     if (!isValidGameName(name)) {
@@ -86,16 +86,30 @@ export const createGame = functions.https.onCall(
       throw new functions.https.HttpsError('internal', 'Failed to generate unique game code');
     }
 
-    // Create game document
+    // Use nickname or fallback to displayName
+    const creatorNickname = nickname?.trim() || userData.displayName;
+
+    // Validate nickname
+    if (!isValidNickname(creatorNickname)) {
+      throw new functions.https.HttpsError(
+        'invalid-argument',
+        'Nickname must be 2-20 characters'
+      );
+    }
+
+    // Generate player ID for creator
+    const playerId = generatePlayerId();
+
+    // Create game document with creator as first player
     const gameData: Game = {
       code: gameCode!,
       name,
       creatorId: uid,
-      creatorDisplayName: userData.displayName,
+      creatorDisplayName: creatorNickname,
       status: 'DRAFT',
       startDate: null,
       endDate: null,
-      playerCount: 0,
+      playerCount: 1,  // Creator is automatically the first player
       maxPlayers: GAME_CONSTANTS.MAX_PLAYERS,
       initialPricesSnapshot: null,
       tickers: [],
@@ -105,16 +119,34 @@ export const createGame = functions.https.onCall(
       endedAt: null,
     };
 
-    await db.collection('games').doc(gameCode!).set(gameData);
+    // Create player document for creator
+    const playerData: Player = {
+      playerId,
+      gameCode: gameCode!,
+      userId: uid,
+      nickname: creatorNickname,
+      portfolio: [],
+      totalBudget: GAME_CONSTANTS.TOTAL_BUDGET,
+      isReady: false,
+      joinedAt: Timestamp.now(),
+      submittedAt: null,
+    };
 
-    await createAuditLog(db, 'GAME_CREATED', uid, 'GAME', gameCode!, { name });
+    // Save both documents
+    const batch = db.batch();
+    batch.set(db.collection('games').doc(gameCode!), gameData);
+    batch.set(db.collection('players').doc(playerId), playerData);
+    await batch.commit();
 
-    functions.logger.info(`Game created: ${gameCode} by ${uid}`);
+    await createAuditLog(db, 'GAME_CREATED', uid, 'GAME', gameCode!, { name, playerId });
+
+    functions.logger.info(`Game created: ${gameCode!} by ${uid}, playerId: ${playerId}`);
 
     return {
       success: true,
       data: {
         gameCode: gameCode!,
+        playerId,
       },
     };
   }
@@ -158,15 +190,18 @@ export const joinGame = functions.https.onCall(
       throw new functions.https.HttpsError('resource-exhausted', 'Game is full');
     }
 
-    // Check if nickname is already taken in this game
-    const existingNickname = await db
+    // Check if nickname is already taken in this game (case-insensitive)
+    const allPlayers = await db
       .collection('players')
       .where('gameCode', '==', game.code)
-      .where('nickname', '==', nickname)
-      .limit(1)
       .get();
 
-    if (!existingNickname.empty) {
+    const nicknameLower = nickname.toLowerCase();
+    const existingNickname = allPlayers.docs.find(
+      (doc) => (doc.data() as Player).nickname.toLowerCase() === nicknameLower
+    );
+
+    if (existingNickname) {
       throw new functions.https.HttpsError(
         'already-exists',
         'This nickname is already taken in this game'
@@ -189,12 +224,14 @@ export const joinGame = functions.https.onCall(
         .get();
 
       if (!existingPlayer.empty) {
-        // Return existing player
+        // Return existing player with consistent response structure
         const existing = existingPlayer.docs[0].data() as Player;
         return {
           success: true,
           data: {
             playerId: existing.playerId,
+            gameCode: game.code,
+            gameName: game.name,
             alreadyJoined: true,
           },
         };
@@ -241,6 +278,7 @@ export const joinGame = functions.https.onCall(
         playerId,
         gameCode: game.code,
         gameName: game.name,
+        alreadyJoined: false,
       },
     };
   }
@@ -348,6 +386,64 @@ export const cancelGame = functions.https.onCall(
 );
 
 /**
+ * Update game settings (Admin only, draft games only)
+ */
+export const updateGame = functions.https.onCall(
+  async (data: { gameCode: string; name?: string }, context) => {
+    if (!context.auth) {
+      throw new functions.https.HttpsError('unauthenticated', 'Must be logged in');
+    }
+
+    const uid = context.auth.uid;
+    const { gameCode, name } = data;
+
+    const gameRef = db.collection('games').doc(gameCode);
+    const gameDoc = await gameRef.get();
+
+    if (!gameDoc.exists) {
+      throw new functions.https.HttpsError('not-found', 'Game not found');
+    }
+
+    const game = gameDoc.data() as Game;
+
+    // Verify creator
+    if (game.creatorId !== uid) {
+      throw new functions.https.HttpsError('permission-denied', 'Only creator can update game');
+    }
+
+    // Only allow updates in DRAFT status
+    if (game.status !== 'DRAFT') {
+      throw new functions.https.HttpsError(
+        'failed-precondition',
+        'Can only update game settings before launch'
+      );
+    }
+
+    // Validate and update name
+    const updates: Record<string, string> = {};
+    if (name !== undefined) {
+      if (!isValidGameName(name)) {
+        throw new functions.https.HttpsError(
+          'invalid-argument',
+          'Game name must be 3-50 characters'
+        );
+      }
+      updates.name = name;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return { success: true }; // Nothing to update
+    }
+
+    await gameRef.update(updates);
+
+    await createAuditLog(db, 'GAME_UPDATED', uid, 'GAME', gameCode, updates);
+
+    return { success: true };
+  }
+);
+
+/**
  * Launch a game (Admin only)
  * This freezes J-1 prices and starts the 7-day countdown
  */
@@ -385,11 +481,11 @@ export const launchGame = functions.https.onCall(
       .where('gameCode', '==', gameCode)
       .get();
 
-    // Must have at least 2 players
-    if (playersSnapshot.size < 2) {
+    // Must have at least 1 player
+    if (playersSnapshot.size < 1) {
       throw new functions.https.HttpsError(
         'failed-precondition',
-        'Need at least 2 players to start the game'
+        'Need at least 1 player to start the game'
       );
     }
 
@@ -590,3 +686,33 @@ export const getGamePlayers = functions.https.onCall(
     };
   }
 );
+
+/**
+ * List open games that can be joined
+ * Returns public games in DRAFT status
+ */
+export const listOpenGames = functions.https.onCall(async () => {
+  const gamesSnapshot = await db
+    .collection('games')
+    .where('status', '==', 'DRAFT')
+    .orderBy('createdAt', 'desc')
+    .limit(20)
+    .get();
+
+  const games = gamesSnapshot.docs.map((doc) => {
+    const game = doc.data() as Game;
+    return {
+      code: game.code,
+      name: game.name,
+      playerCount: game.playerCount,
+      maxPlayers: game.maxPlayers,
+      creatorDisplayName: game.creatorDisplayName,
+      createdAt: game.createdAt.toDate().toISOString(),
+    };
+  });
+
+  return {
+    success: true,
+    data: { games },
+  };
+});
