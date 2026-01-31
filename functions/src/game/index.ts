@@ -686,3 +686,33 @@ export const getGamePlayers = functions.https.onCall(
     };
   }
 );
+
+/**
+ * List open games that can be joined
+ * Returns public games in DRAFT status
+ */
+export const listOpenGames = functions.https.onCall(async () => {
+  const gamesSnapshot = await db
+    .collection('games')
+    .where('status', '==', 'DRAFT')
+    .orderBy('createdAt', 'desc')
+    .limit(20)
+    .get();
+
+  const games = gamesSnapshot.docs.map((doc) => {
+    const game = doc.data() as Game;
+    return {
+      code: game.code,
+      name: game.name,
+      playerCount: game.playerCount,
+      maxPlayers: game.maxPlayers,
+      creatorDisplayName: game.creatorDisplayName,
+      createdAt: game.createdAt.toDate().toISOString(),
+    };
+  });
+
+  return {
+    success: true,
+    data: { games },
+  };
+});

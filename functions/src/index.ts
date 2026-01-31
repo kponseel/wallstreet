@@ -20,6 +20,7 @@ export {
   launchGame,
   getGameByCode,
   getGamePlayers,
+  listOpenGames,
 } from './game';
 
 // Export Portfolio functions
