@@ -3,30 +3,16 @@ import { useParams, Link } from 'react-router-dom';
 import { httpsCallable } from 'firebase/functions';
 import { functions } from '@/services/firebase';
 import { useAuthStore } from '@/hooks/useAuthStore';
-import { GAME_CONSTANTS, AWARD_CONFIG, type Game, type LeaderboardEntry, type Award } from '@/types';
+import { GAME_CONSTANTS, AWARD_CONFIG, type LeaderboardEntry, type Award } from '@/types';
 import { useStockPrices, formatPrice } from '@/hooks/useStockPrices';
-
-interface PlayerInfo {
-  playerId: string;
-  nickname: string;
-  isReady: boolean;
-  joinedAt: string;
-  portfolioCount?: number;
-  portfolio?: Array<{
-    ticker: string;
-    budgetInvested: number;
-    quantity: number;
-    initialPrice: number;
-  }>;
-}
+import { useGameListener, usePlayersListener, useLeaderboardListener } from '@/hooks/useRealtimeGame';
+import { useToast } from '@/contexts/ToastContext';
 
 export function MatchDetailPage() {
   const { gameCode } = useParams<{ gameCode: string }>();
   const { user } = useAuthStore();
-  const [game, setGame] = useState<Game | null>(null);
-  const [players, setPlayers] = useState<PlayerInfo[]>([]);
+  const { showToast } = useToast();
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
-  const [loading, setLoading] = useState(true);
   const [launching, setLaunching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [timeRemaining, setTimeRemaining] = useState<string>('');
@@ -34,6 +20,40 @@ export function MatchDetailPage() {
   const [editingName, setEditingName] = useState(false);
   const [newName, setNewName] = useState('');
   const [savingName, setSavingName] = useState(false);
+
+  // Real-time game and players listeners
+  const handleGameChange = useCallback((event: { type: string; data?: Record<string, unknown> }) => {
+    if (event.type === 'status_changed') {
+      if (event.data?.to === 'LIVE') {
+        showToast('La partie a commence !', 'success');
+      } else if (event.data?.to === 'ENDED') {
+        showToast('La partie est terminee !', 'info');
+      }
+    }
+  }, [showToast]);
+
+  const handlePlayerChange = useCallback((event: { type: string; data?: Record<string, unknown> }) => {
+    if (event.type === 'player_joined') {
+      showToast(`${event.data?.nickname || 'Un joueur'} a rejoint la partie`, 'info');
+    } else if (event.type === 'player_ready') {
+      showToast(`${event.data?.nickname || 'Un joueur'} est pret !`, 'success');
+    } else if (event.type === 'player_left') {
+      showToast('Un joueur a quitte la partie', 'warning');
+    }
+  }, [showToast]);
+
+  const { game, loading: gameLoading } = useGameListener(gameCode, handleGameChange);
+  const { players, loading: playersLoading } = usePlayersListener(gameCode, handlePlayerChange);
+  const { entries: realtimeLeaderboard } = useLeaderboardListener(gameCode, game?.status === 'ENDED');
+
+  const loading = gameLoading || playersLoading;
+
+  // Update leaderboard from realtime listener
+  useEffect(() => {
+    if (realtimeLeaderboard.length > 0) {
+      setLeaderboard(realtimeLeaderboard as unknown as LeaderboardEntry[]);
+    }
+  }, [realtimeLeaderboard]);
 
   // Stock prices for live games
   const { prices, fetchPrices, loading: pricesLoading } = useStockPrices();
@@ -62,54 +82,29 @@ export function MatchDetailPage() {
   const isCreator = (user?.uid && user.uid === game?.creatorId) ||
                     (currentPlayerId && currentPlayerId === game?.creatorPlayerId);
 
-  const fetchGameData = useCallback(async () => {
-    if (!gameCode) return;
+  // Fetch leaderboard for ended games (initial load from Cloud Function)
+  const fetchLeaderboard = useCallback(async () => {
+    if (!gameCode || game?.status !== 'ENDED') return;
 
     try {
-      // Fetch game info
-      const getGameByCode = httpsCallable(functions, 'getGameByCode');
-      const gameResult = await getGameByCode({ gameCode });
-      const gameData = gameResult.data as { success: boolean; data?: any };
+      const getLeaderboard = httpsCallable(functions, 'getLeaderboard');
+      const leaderboardResult = await getLeaderboard({ gameCode });
+      const leaderboardData = leaderboardResult.data as { success: boolean; data?: { entries: LeaderboardEntry[] } };
 
-      if (gameData.success && gameData.data) {
-        setGame({
-          ...gameData.data,
-          startDate: gameData.data.startDate ? new Date(gameData.data.startDate) : null,
-          endDate: gameData.data.endDate ? new Date(gameData.data.endDate) : null,
-          createdAt: new Date(),
-        } as Game);
-      }
-
-      // Fetch players
-      const getGamePlayers = httpsCallable(functions, 'getGamePlayers');
-      const playersResult = await getGamePlayers({ gameCode });
-      const playersData = playersResult.data as { success: boolean; data?: { players: PlayerInfo[] } };
-
-      if (playersData.success && playersData.data) {
-        setPlayers(playersData.data.players);
-      }
-
-      // Fetch leaderboard for ended games
-      if (gameData.data?.status === 'ENDED') {
-        const getLeaderboard = httpsCallable(functions, 'getLeaderboard');
-        const leaderboardResult = await getLeaderboard({ gameCode });
-        const leaderboardData = leaderboardResult.data as { success: boolean; data?: { entries: LeaderboardEntry[] } };
-
-        if (leaderboardData.success && leaderboardData.data) {
-          setLeaderboard(leaderboardData.data.entries);
-        }
+      if (leaderboardData.success && leaderboardData.data) {
+        setLeaderboard(leaderboardData.data.entries);
       }
     } catch (err) {
-      console.error('Error fetching game data:', err);
-      setError('Erreur lors du chargement');
-    } finally {
-      setLoading(false);
+      console.error('Error fetching leaderboard:', err);
     }
-  }, [gameCode]);
+  }, [gameCode, game?.status]);
 
+  // Fetch leaderboard when game ends
   useEffect(() => {
-    fetchGameData();
-  }, [fetchGameData]);
+    if (game?.status === 'ENDED' && leaderboard.length === 0) {
+      fetchLeaderboard();
+    }
+  }, [game?.status, leaderboard.length, fetchLeaderboard]);
 
   // Countdown timer
   useEffect(() => {
@@ -122,7 +117,6 @@ export function MatchDetailPage() {
 
       if (diff <= 0) {
         setTimeRemaining('Termine !');
-        fetchGameData(); // Refresh to get final results
         return;
       }
 
@@ -137,7 +131,7 @@ export function MatchDetailPage() {
     updateCountdown();
     const interval = setInterval(updateCountdown, 1000);
     return () => clearInterval(interval);
-  }, [game?.endDate, game?.status, fetchGameData]);
+  }, [game?.endDate, game?.status]);
 
   const handleLaunchGame = async () => {
     if (!gameCode || !isCreator) return;
@@ -150,7 +144,7 @@ export function MatchDetailPage() {
       const data = result.data as { success: boolean };
 
       if (data.success) {
-        fetchGameData();
+        showToast('Partie lancee !', 'success');
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Erreur lors du lancement');
@@ -170,8 +164,9 @@ export function MatchDetailPage() {
       const data = result.data as { success: boolean };
 
       if (data.success) {
-        setGame((prev) => prev ? { ...prev, name: newName.trim() } : prev);
         setEditingName(false);
+        showToast('Nom modifie', 'success');
+        // Game state will auto-update via real-time listener
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Erreur lors de la modification');
