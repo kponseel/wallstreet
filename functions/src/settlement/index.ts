@@ -17,7 +17,7 @@ import {
   createAuditLog,
   formatDateString,
 } from '../utils/helpers';
-import { findStockByTicker } from '../data/stocks';
+import { fetchBatchQuotes, generateMockPrice } from '../utils/stockPrices';
 
 const db = admin.firestore();
 
@@ -231,29 +231,57 @@ async function settleGame(gameCode: string): Promise<void> {
 
 /**
  * Fetch final prices for all tickers
+ * Tries in order: 1) Price snapshots, 2) Live API, 3) Mock prices
  */
 async function fetchFinalPrices(tickers: string[]): Promise<Record<string, number>> {
   const prices: Record<string, number> = {};
   const today = formatDateString(new Date());
+  const tickersToFetch: string[] = [];
 
+  // First, try to get from price snapshots
   for (const ticker of tickers) {
-    // Try to get from price snapshots
     const priceDoc = await db
       .collection('priceSnapshots')
       .doc(`${today}_${ticker}`)
       .get();
 
     if (priceDoc.exists) {
-      prices[ticker] = priceDoc.data()!.closePrice;
+      const data = priceDoc.data()!;
+      prices[ticker] = data.price || data.closePrice;
+      functions.logger.info(`Got snapshot price for ${ticker}: ${prices[ticker]}`);
     } else {
-      // Use mock price (simulate some movement from initial)
-      const stockData = findStockByTicker(ticker);
-      if (stockData) {
-        // Generate a price with some variance (-15% to +20%)
-        const basePrice = stockData.market === 'CAC40' ? 150 : 200;
-        const variance = (Math.random() * 35 - 15) / 100; // -15% to +20%
-        prices[ticker] = Math.round((basePrice + basePrice * variance + Math.random() * 400) * 100) / 100;
-      }
+      tickersToFetch.push(ticker);
+    }
+  }
+
+  // Fetch missing prices from live API
+  if (tickersToFetch.length > 0) {
+    functions.logger.info(`Fetching live prices for ${tickersToFetch.length} tickers`);
+
+    const { quotes, errors } = await fetchBatchQuotes(tickersToFetch);
+
+    // Add successful quotes
+    for (const [ticker, quote] of Object.entries(quotes)) {
+      prices[ticker] = quote.price;
+      functions.logger.info(`Got live price for ${ticker}: ${quote.price}`);
+
+      // Save to snapshots for future reference
+      const snapshotId = `${today}_${ticker}`;
+      await db.collection('priceSnapshots').doc(snapshotId).set({
+        ticker,
+        date: today,
+        price: quote.price,
+        previousClose: quote.previousClose,
+        currency: quote.currency,
+        capturedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+
+    // Use mock prices for failures
+    for (const ticker of errors) {
+      const mockQuote = generateMockPrice(ticker);
+      prices[ticker] = mockQuote.price;
+      functions.logger.warn(`Using mock price for ${ticker}: ${mockQuote.price}`);
     }
   }
 

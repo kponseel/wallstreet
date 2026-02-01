@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { httpsCallable } from 'firebase/functions';
 import { functions } from '@/services/firebase';
 import { GAME_CONSTANTS, type Symbol, type Market } from '@/types';
+import { useStockPrices, formatPrice, formatChange } from '@/hooks/useStockPrices';
 
 interface PositionDraft {
   ticker: string;
@@ -23,6 +24,25 @@ export function PortfolioBuilderPage() {
   const [playerId, setPlayerId] = useState<string | null>(null);
   const [gameStatus, setGameStatus] = useState<string | null>(null);
   const [initialLoading, setInitialLoading] = useState(true);
+
+  // Stock prices hook
+  const { prices, fetchPrices } = useStockPrices();
+
+  // Fetch prices when positions change
+  useEffect(() => {
+    const tickers = positions.map((p) => p.ticker);
+    if (tickers.length > 0) {
+      fetchPrices(tickers);
+    }
+  }, [positions.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch prices for search results
+  useEffect(() => {
+    const tickers = searchResults.map((s) => s.ticker);
+    if (tickers.length > 0) {
+      fetchPrices(tickers);
+    }
+  }, [searchResults]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Get playerId from localStorage and check game status
   useEffect(() => {
@@ -248,21 +268,40 @@ export function PortfolioBuilderPage() {
 
         {!loading && searchResults.length > 0 && (
           <div className="mt-2 border border-gray-200 rounded-lg divide-y max-h-64 overflow-auto">
-            {searchResults.map((symbol) => (
-              <button
-                key={symbol.ticker}
-                onClick={() => addPosition(symbol)}
-                className="w-full px-3 py-2 text-left hover:bg-gray-50 flex justify-between items-center"
-              >
-                <div>
-                  <span className="font-medium">{symbol.ticker}</span>
-                  <span className="text-gray-500 text-sm ml-2">{symbol.companyName}</span>
-                </div>
-                <span className={`text-xs px-2 py-1 rounded ${getMarketBadgeColor(symbol.market)}`}>
-                  {symbol.market}
-                </span>
-              </button>
-            ))}
+            {searchResults.map((symbol) => {
+              const quote = prices[symbol.ticker];
+              const changeInfo = quote ? formatChange(quote.change, quote.changePercent) : null;
+              return (
+                <button
+                  key={symbol.ticker}
+                  onClick={() => addPosition(symbol)}
+                  className="w-full px-3 py-2 text-left hover:bg-gray-50"
+                >
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <span className="font-medium">{symbol.ticker}</span>
+                      <span className="text-gray-500 text-sm ml-2">{symbol.companyName}</span>
+                    </div>
+                    <span className={`text-xs px-2 py-1 rounded ${getMarketBadgeColor(symbol.market)}`}>
+                      {symbol.market}
+                    </span>
+                  </div>
+                  {quote && (
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="font-mono text-sm font-medium">
+                        {formatPrice(quote.price, quote.currency)}
+                      </span>
+                      <span className={`text-xs ${changeInfo?.color}`}>
+                        {changeInfo?.text}
+                      </span>
+                      {quote.isMock && (
+                        <span className="text-xs text-gray-400">(simule)</span>
+                      )}
+                    </div>
+                  )}
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
@@ -284,56 +323,76 @@ export function PortfolioBuilderPage() {
           </p>
         ) : (
           <div className="space-y-4">
-            {positions.map((position, index) => (
-              <div key={position.ticker} className="bg-gray-50 p-4 rounded-lg">
-                <div className="flex justify-between items-start mb-3">
-                  <div>
+            {positions.map((position, index) => {
+              const quote = prices[position.ticker];
+              const changeInfo = quote ? formatChange(quote.change, quote.changePercent) : null;
+              const estimatedShares = quote ? (position.budgetInvested / quote.price) : null;
+              return (
+                <div key={position.ticker} className="bg-gray-50 p-4 rounded-lg">
+                  <div className="flex justify-between items-start mb-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-lg">{position.ticker}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded ${getMarketBadgeColor(position.market)}`}>
+                          {position.market}
+                        </span>
+                      </div>
+                      <span className="text-gray-500 text-sm">{position.companyName}</span>
+                      {quote && (
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="font-mono text-sm font-semibold">
+                            {formatPrice(quote.price, quote.currency)}
+                          </span>
+                          <span className={`text-xs ${changeInfo?.color}`}>
+                            {changeInfo?.text}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => removePosition(index)}
+                      className="text-red-500 hover:text-red-700 text-lg"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="range"
+                        min={0}
+                        max={GAME_CONSTANTS.TOTAL_BUDGET}
+                        step={100}
+                        value={position.budgetInvested}
+                        onChange={(e) => updateBudget(index, Number(e.target.value))}
+                        className="flex-1"
+                      />
+                    </div>
                     <div className="flex items-center gap-2">
-                      <span className="font-bold text-lg">{position.ticker}</span>
-                      <span className={`text-xs px-2 py-0.5 rounded ${getMarketBadgeColor(position.market)}`}>
-                        {position.market}
+                      <input
+                        type="number"
+                        min={0}
+                        max={GAME_CONSTANTS.TOTAL_BUDGET}
+                        step={100}
+                        value={position.budgetInvested}
+                        onChange={(e) => updateBudget(index, Number(e.target.value))}
+                        className="input w-32 text-right font-mono"
+                      />
+                      <span className="text-gray-600">Credits</span>
+                      <span className="text-gray-400 text-sm ml-2">
+                        ({((position.budgetInvested / GAME_CONSTANTS.TOTAL_BUDGET) * 100).toFixed(1)}%)
                       </span>
                     </div>
-                    <span className="text-gray-500 text-sm">{position.companyName}</span>
-                  </div>
-                  <button
-                    onClick={() => removePosition(index)}
-                    className="text-red-500 hover:text-red-700 text-lg"
-                  >
-                    ✕
-                  </button>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="range"
-                      min={0}
-                      max={GAME_CONSTANTS.TOTAL_BUDGET}
-                      step={100}
-                      value={position.budgetInvested}
-                      onChange={(e) => updateBudget(index, Number(e.target.value))}
-                      className="flex-1"
-                    />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      min={0}
-                      max={GAME_CONSTANTS.TOTAL_BUDGET}
-                      step={100}
-                      value={position.budgetInvested}
-                      onChange={(e) => updateBudget(index, Number(e.target.value))}
-                      className="input w-32 text-right font-mono"
-                    />
-                    <span className="text-gray-600">Credits</span>
-                    <span className="text-gray-400 text-sm ml-2">
-                      ({((position.budgetInvested / GAME_CONSTANTS.TOTAL_BUDGET) * 100).toFixed(1)}%)
-                    </span>
+                    {estimatedShares !== null && (
+                      <div className="text-xs text-gray-500">
+                        ~{estimatedShares.toFixed(2)} actions estimees au prix actuel
+                      </div>
+                    )}
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 

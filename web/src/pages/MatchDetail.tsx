@@ -4,6 +4,7 @@ import { httpsCallable } from 'firebase/functions';
 import { functions } from '@/services/firebase';
 import { useAuthStore } from '@/hooks/useAuthStore';
 import { GAME_CONSTANTS, AWARD_CONFIG, type Game, type LeaderboardEntry, type Award } from '@/types';
+import { useStockPrices, formatPrice } from '@/hooks/useStockPrices';
 
 interface PlayerInfo {
   playerId: string;
@@ -33,6 +34,21 @@ export function MatchDetailPage() {
   const [editingName, setEditingName] = useState(false);
   const [newName, setNewName] = useState('');
   const [savingName, setSavingName] = useState(false);
+
+  // Stock prices for live games
+  const { prices, fetchPrices, loading: pricesLoading } = useStockPrices();
+
+  // Fetch stock prices for live games
+  useEffect(() => {
+    if (game?.status === 'LIVE' && players.length > 0) {
+      const allTickers = players
+        .flatMap((p) => p.portfolio?.map((pos) => pos.ticker) || [])
+        .filter((t, i, arr) => arr.indexOf(t) === i);
+      if (allTickers.length > 0) {
+        fetchPrices(allTickers);
+      }
+    }
+  }, [game?.status, players]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Get playerId from localStorage
   useEffect(() => {
@@ -437,21 +453,85 @@ export function MatchDetailPage() {
       {/* Revealed Portfolios (when LIVE or ENDED) */}
       {(game.status === 'LIVE' || game.status === 'ENDED') && players.some((p) => p.portfolio) && (
         <div className="card p-6">
-          <h3 className="font-bold mb-4">Portefeuilles</h3>
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="font-bold">Portefeuilles</h3>
+            {game.status === 'LIVE' && pricesLoading && (
+              <span className="text-xs text-gray-500">Chargement des prix...</span>
+            )}
+          </div>
           <div className="space-y-4">
-            {players.map((player) => player.portfolio && (
-              <div key={player.playerId} className="bg-gray-50 p-4 rounded-lg">
-                <p className="font-medium mb-2">{player.nickname}</p>
-                <div className="space-y-1">
-                  {player.portfolio.map((pos) => (
-                    <div key={pos.ticker} className="flex justify-between text-sm">
-                      <span>{pos.ticker}</span>
-                      <span className="text-gray-600">{pos.budgetInvested.toLocaleString()} Credits</span>
-                    </div>
-                  ))}
+            {players.map((player) => {
+              if (!player.portfolio) return null;
+
+              // Calculate portfolio value for LIVE games
+              let totalValue = 0;
+              let totalReturn = 0;
+              if (game.status === 'LIVE') {
+                for (const pos of player.portfolio) {
+                  const quote = prices[pos.ticker];
+                  if (quote && pos.initialPrice) {
+                    const currentValue = pos.quantity * quote.price;
+                    totalValue += currentValue;
+                  } else {
+                    totalValue += pos.budgetInvested;
+                  }
+                }
+                totalReturn = ((totalValue - GAME_CONSTANTS.TOTAL_BUDGET) / GAME_CONSTANTS.TOTAL_BUDGET) * 100;
+              }
+
+              return (
+                <div key={player.playerId} className={`bg-gray-50 p-4 rounded-lg ${player.playerId === currentPlayerId ? 'ring-2 ring-primary-200' : ''}`}>
+                  <div className="flex justify-between items-center mb-3">
+                    <p className="font-medium">{player.nickname}</p>
+                    {game.status === 'LIVE' && Object.keys(prices).length > 0 && (
+                      <div className="text-right">
+                        <p className={`font-bold ${totalReturn >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {totalReturn >= 0 ? '+' : ''}{totalReturn.toFixed(2)}%
+                        </p>
+                        <p className="text-xs text-gray-500">{totalValue.toFixed(0)} Credits</p>
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    {player.portfolio.map((pos) => {
+                      const quote = prices[pos.ticker];
+                      const posReturn = quote && pos.initialPrice
+                        ? ((quote.price - pos.initialPrice) / pos.initialPrice) * 100
+                        : null;
+                      const currentValue = quote ? pos.quantity * quote.price : pos.budgetInvested;
+
+                      return (
+                        <div key={pos.ticker} className="flex justify-between items-center text-sm bg-white p-2 rounded">
+                          <div>
+                            <span className="font-medium">{pos.ticker}</span>
+                            <span className="text-gray-500 ml-2">
+                              {pos.budgetInvested.toLocaleString()} Cr
+                            </span>
+                          </div>
+                          {game.status === 'LIVE' && quote ? (
+                            <div className="text-right">
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-xs">
+                                  {formatPrice(quote.price, quote.currency)}
+                                </span>
+                                {posReturn !== null && (
+                                  <span className={`text-xs font-medium ${posReturn >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                    {posReturn >= 0 ? '+' : ''}{posReturn.toFixed(1)}%
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs text-gray-400">{currentValue.toFixed(0)} Cr</p>
+                            </div>
+                          ) : (
+                            <span className="text-gray-600">{pos.budgetInvested.toLocaleString()} Cr</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

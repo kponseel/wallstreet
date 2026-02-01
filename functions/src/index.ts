@@ -45,3 +45,12 @@ export {
   getLeaderboard,
   getPlayerResult,
 } from './settlement';
+
+// Export Stock Price functions
+export {
+  getStockPrice,
+  getBatchStockPrices,
+  storePriceSnapshot,
+  getPriceSnapshot,
+  dailyPriceSnapshot,
+} from './stocks';
