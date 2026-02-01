@@ -73,6 +73,31 @@ firebase deploy --only functions
 firebase deploy --only hosting
 ```
 
+## Deployment Notes
+
+### Orphaned Functions in Production
+The following functions exist in Firebase but were removed from the codebase (legacy v1.0 functions). Deployment will fail in non-interactive mode until these are manually deleted:
+
+```bash
+# Admin functions (removed)
+firebase functions:delete adminDeleteGame --region us-central1
+firebase functions:delete adminDeletePlayer --region us-central1
+firebase functions:delete adminListGames --region us-central1
+firebase functions:delete adminListPlayers --region us-central1
+
+# Price snapshot functions (removed - prices now handled differently)
+firebase functions:delete dailyPriceSnapshot --region us-central1
+firebase functions:delete getBatchStockPrices --region us-central1
+firebase functions:delete getPriceSnapshot --region us-central1
+firebase functions:delete getStockPrice --region us-central1
+firebase functions:delete storePriceSnapshot --region us-central1
+```
+
+### CI/CD Pipeline
+- Deploys automatically on push to `main` or `claude/*` branches
+- Uses GitHub Actions (`.github/workflows/firebase-deploy.yml`)
+- Requires Firebase secrets configured in GitHub repository settings
+
 ## Key Business Rules
 
 ### Game Mechanics
