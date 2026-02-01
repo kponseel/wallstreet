@@ -719,3 +719,205 @@ export const listOpenGames = functions.https.onCall(async () => {
     data: { games },
   };
 });
+
+// ============================================
+// SUPER ADMIN FUNCTIONS (kevin.ponseel@gmail.com only)
+// ============================================
+
+const SUPER_ADMIN_EMAIL = 'kevin.ponseel@gmail.com';
+
+/**
+ * Check if user is super admin
+ */
+async function isSuperAdmin(uid: string): Promise<boolean> {
+  const userDoc = await db.collection('users').doc(uid).get();
+  if (!userDoc.exists) return false;
+  const userData = userDoc.data();
+  return userData?.email === SUPER_ADMIN_EMAIL;
+}
+
+/**
+ * List all games for admin panel
+ */
+export const adminListGames = functions.https.onCall(async (_data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Must be logged in');
+  }
+
+  if (!(await isSuperAdmin(context.auth.uid))) {
+    throw new functions.https.HttpsError('permission-denied', 'Super admin access required');
+  }
+
+  const gamesSnapshot = await db
+    .collection('games')
+    .orderBy('createdAt', 'desc')
+    .limit(100)
+    .get();
+
+  const games = gamesSnapshot.docs.map((doc) => {
+    const game = doc.data() as Game;
+    return {
+      code: game.code,
+      name: game.name,
+      status: game.status,
+      playerCount: game.playerCount,
+      maxPlayers: game.maxPlayers,
+      creatorDisplayName: game.creatorDisplayName,
+      createdAt: game.createdAt.toDate().toISOString(),
+      startDate: game.startDate?.toDate().toISOString() || null,
+      endDate: game.endDate?.toDate().toISOString() || null,
+    };
+  });
+
+  return {
+    success: true,
+    data: { games },
+  };
+});
+
+/**
+ * List all players for admin panel
+ */
+export const adminListPlayers = functions.https.onCall(
+  async (data: { gameCode?: string }, context) => {
+    if (!context.auth) {
+      throw new functions.https.HttpsError('unauthenticated', 'Must be logged in');
+    }
+
+    if (!(await isSuperAdmin(context.auth.uid))) {
+      throw new functions.https.HttpsError('permission-denied', 'Super admin access required');
+    }
+
+    let query = db.collection('players').orderBy('joinedAt', 'desc').limit(200);
+
+    if (data.gameCode) {
+      query = db
+        .collection('players')
+        .where('gameCode', '==', data.gameCode)
+        .orderBy('joinedAt', 'desc');
+    }
+
+    const playersSnapshot = await query.get();
+
+    const players = playersSnapshot.docs.map((doc) => {
+      const player = doc.data() as Player;
+      return {
+        playerId: player.playerId,
+        gameCode: player.gameCode,
+        nickname: player.nickname,
+        isReady: player.isReady,
+        joinedAt: player.joinedAt.toDate().toISOString(),
+        portfolioCount: player.portfolio.length,
+      };
+    });
+
+    return {
+      success: true,
+      data: { players },
+    };
+  }
+);
+
+/**
+ * Delete a game (Super admin only)
+ */
+export const adminDeleteGame = functions.https.onCall(
+  async (data: { gameCode: string }, context) => {
+    if (!context.auth) {
+      throw new functions.https.HttpsError('unauthenticated', 'Must be logged in');
+    }
+
+    if (!(await isSuperAdmin(context.auth.uid))) {
+      throw new functions.https.HttpsError('permission-denied', 'Super admin access required');
+    }
+
+    const { gameCode } = data;
+
+    const gameRef = db.collection('games').doc(gameCode);
+    const gameDoc = await gameRef.get();
+
+    if (!gameDoc.exists) {
+      throw new functions.https.HttpsError('not-found', 'Game not found');
+    }
+
+    // Delete all players in the game
+    const playersSnapshot = await db
+      .collection('players')
+      .where('gameCode', '==', gameCode)
+      .get();
+
+    // Delete all results for the game
+    const resultsSnapshot = await db
+      .collection('results')
+      .where('gameCode', '==', gameCode)
+      .get();
+
+    const batch = db.batch();
+
+    playersSnapshot.forEach((doc) => batch.delete(doc.ref));
+    resultsSnapshot.forEach((doc) => batch.delete(doc.ref));
+    batch.delete(gameRef);
+
+    await batch.commit();
+
+    await createAuditLog(db, 'ADMIN_DELETE_GAME', context.auth.uid, 'GAME', gameCode, {
+      deletedPlayers: playersSnapshot.size,
+      deletedResults: resultsSnapshot.size,
+    });
+
+    functions.logger.info(`Admin deleted game ${gameCode}`);
+
+    return { success: true };
+  }
+);
+
+/**
+ * Delete a player (Super admin only)
+ */
+export const adminDeletePlayer = functions.https.onCall(
+  async (data: { playerId: string }, context) => {
+    if (!context.auth) {
+      throw new functions.https.HttpsError('unauthenticated', 'Must be logged in');
+    }
+
+    if (!(await isSuperAdmin(context.auth.uid))) {
+      throw new functions.https.HttpsError('permission-denied', 'Super admin access required');
+    }
+
+    const { playerId } = data;
+
+    const playerRef = db.collection('players').doc(playerId);
+    const playerDoc = await playerRef.get();
+
+    if (!playerDoc.exists) {
+      throw new functions.https.HttpsError('not-found', 'Player not found');
+    }
+
+    const player = playerDoc.data() as Player;
+
+    // Update game player count
+    const gameRef = db.collection('games').doc(player.gameCode);
+    const gameDoc = await gameRef.get();
+
+    if (gameDoc.exists) {
+      const batch = db.batch();
+      batch.delete(playerRef);
+      batch.update(gameRef, {
+        playerCount: admin.firestore.FieldValue.increment(-1),
+      });
+      await batch.commit();
+    } else {
+      // Game doesn't exist, just delete player
+      await playerRef.delete();
+    }
+
+    await createAuditLog(db, 'ADMIN_DELETE_PLAYER', context.auth.uid, 'PLAYER', playerId, {
+      gameCode: player.gameCode,
+      nickname: player.nickname,
+    });
+
+    functions.logger.info(`Admin deleted player ${playerId} from game ${player.gameCode}`);
+
+    return { success: true };
+  }
+);

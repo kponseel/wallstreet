@@ -1,5 +1,8 @@
 import { Outlet, NavLink, Link } from 'react-router-dom';
 import { APP_VERSION } from '@/version';
+import { useAuthStore } from '@/hooks/useAuthStore';
+
+const SUPER_ADMIN_EMAIL = 'kevin.ponseel@gmail.com';
 
 const navItems = [
   { to: '/', label: 'Home', icon: HomeIcon },
@@ -9,15 +12,25 @@ const navItems = [
 ];
 
 export function Layout() {
+  const { user } = useAuthStore();
+  const isSuperAdmin = user?.email === SUPER_ADMIN_EMAIL;
+
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
       {/* Header */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-40">
         <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
           <h1 className="text-lg font-bold text-primary-700">WSFL</h1>
-          <Link to="/changelog" className="text-xs text-gray-400 hover:text-primary-600">
-            v{APP_VERSION}
-          </Link>
+          <div className="flex items-center space-x-3">
+            {isSuperAdmin && (
+              <Link to="/admin" className="text-xs text-red-600 hover:text-red-800 font-medium">
+                Admin
+              </Link>
+            )}
+            <Link to="/changelog" className="text-xs text-gray-400 hover:text-primary-600">
+              v{APP_VERSION}
+            </Link>
+          </div>
         </div>
       </header>
 

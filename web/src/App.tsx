@@ -13,6 +13,7 @@ import { CreateMatchPage } from '@/pages/CreateMatch';
 import { PortfolioBuilderPage } from '@/pages/PortfolioBuilder';
 import { ProfilePage } from '@/pages/Profile';
 import { ChangelogPage } from '@/pages/Changelog';
+import { AdminPage } from '@/pages/Admin';
 
 // Components
 import { Layout } from '@/components/Layout';
@@ -98,6 +99,7 @@ export default function App() {
         <Route path="/games/:gameCode/portfolio" element={<PortfolioBuilderPage />} />
         <Route path="/create" element={<CreateMatchPage />} />
         <Route path="/profile" element={<ProfilePage />} />
+        <Route path="/admin" element={<AdminPage />} />
 
         {/* Legacy routes - redirect to new paths */}
         <Route path="/matches" element={<Navigate to="/games" replace />} />

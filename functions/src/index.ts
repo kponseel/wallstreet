@@ -21,6 +21,11 @@ export {
   getGameByCode,
   getGamePlayers,
   listOpenGames,
+  // Super admin functions
+  adminListGames,
+  adminListPlayers,
+  adminDeleteGame,
+  adminDeletePlayer,
 } from './game';
 
 // Export Portfolio functions
