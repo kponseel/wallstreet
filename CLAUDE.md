@@ -6,7 +6,7 @@ This document provides comprehensive guidance for AI assistants working with the
 
 Wall Street Fantasy League is a stock-picking competition game where players build virtual portfolios (3 stocks, 10,000 credits) and compete based on percentage returns over 7 days. Built as a full-stack application with Firebase backend and React frontend.
 
-**Current Version**: 2.0
+**Current Version**: 2.0.1
 
 ## Tech Stack
 
@@ -74,24 +74,6 @@ firebase deploy --only hosting
 ```
 
 ## Deployment Notes
-
-### Orphaned Functions in Production
-The following functions exist in Firebase but were removed from the codebase (legacy v1.0 functions). Deployment will fail in non-interactive mode until these are manually deleted:
-
-```bash
-# Admin functions (removed)
-firebase functions:delete adminDeleteGame --region us-central1
-firebase functions:delete adminDeletePlayer --region us-central1
-firebase functions:delete adminListGames --region us-central1
-firebase functions:delete adminListPlayers --region us-central1
-
-# Price snapshot functions (removed - prices now handled differently)
-firebase functions:delete dailyPriceSnapshot --region us-central1
-firebase functions:delete getBatchStockPrices --region us-central1
-firebase functions:delete getPriceSnapshot --region us-central1
-firebase functions:delete getStockPrice --region us-central1
-firebase functions:delete storePriceSnapshot --region us-central1
-```
 
 ### CI/CD Pipeline
 - Deploys automatically on push to `main` or `claude/*` branches
