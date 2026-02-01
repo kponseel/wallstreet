@@ -90,31 +90,23 @@ export const deleteUserAccount = functions.https.onCall(async (data, context) =>
       photoURL: null,
     });
 
-    // 2. Delete portfolios in OPEN matches (not locked)
-    const openPortfolios = await db
-      .collection('portfolios')
-      .where('userId', '==', uid)
-      .where('isLocked', '==', false)
-      .get();
-
-    openPortfolios.forEach((doc) => {
-      batch.delete(doc.ref);
-    });
-
-    // 3. Remove from matchParticipants for OPEN matches
-    const participations = await db
-      .collection('matchParticipants')
+    // 2. Remove player from DRAFT games (v2.0 uses 'players' collection)
+    const playerDocs = await db
+      .collection('players')
       .where('userId', '==', uid)
       .get();
 
-    for (const doc of participations.docs) {
-      const participant = doc.data();
-      // Check if match is still OPEN
-      const matchDoc = await db.collection('matches').doc(participant.matchId).get();
-      if (matchDoc.exists && matchDoc.data()?.status === 'OPEN') {
-        batch.delete(doc.ref);
-        // Decrement player count
-        batch.update(db.collection('matches').doc(participant.matchId), {
+    for (const playerDoc of playerDocs.docs) {
+      const player = playerDoc.data();
+      const gameCode = player.gameCode;
+
+      // Check if game is still in DRAFT status
+      const gameDoc = await db.collection('games').doc(gameCode).get();
+      if (gameDoc.exists && gameDoc.data()?.status === 'DRAFT') {
+        // Delete player document
+        batch.delete(playerDoc.ref);
+        // Decrement player count on the game
+        batch.update(db.collection('games').doc(gameCode), {
           playerCount: admin.firestore.FieldValue.increment(-1),
         });
       }

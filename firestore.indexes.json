@@ -9,32 +9,7 @@
       ]
     },
     {
-      "collectionGroup": "matches",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "startDate", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "matches",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "type", "order": "ASCENDING" },
-        { "fieldPath": "startDate", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "matches",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "creatorId", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "matches",
+      "collectionGroup": "games",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "status", "order": "ASCENDING" },
@@ -42,26 +17,34 @@
       ]
     },
     {
-      "collectionGroup": "portfolios",
+      "collectionGroup": "games",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "matchId", "order": "ASCENDING" },
-        { "fieldPath": "submittedAt", "order": "ASCENDING" }
+        { "fieldPath": "creatorId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
     },
     {
-      "collectionGroup": "portfolios",
+      "collectionGroup": "players",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "gameCode", "order": "ASCENDING" },
+        { "fieldPath": "joinedAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "players",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "userId", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
+        { "fieldPath": "joinedAt", "order": "DESCENDING" }
       ]
     },
     {
       "collectionGroup": "results",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "matchId", "order": "ASCENDING" },
+        { "fieldPath": "gameCode", "order": "ASCENDING" },
         { "fieldPath": "rank", "order": "ASCENDING" }
       ]
     },
@@ -77,7 +60,7 @@
       "collectionGroup": "results",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "matchId", "order": "ASCENDING" },
+        { "fieldPath": "gameCode", "order": "ASCENDING" },
         { "fieldPath": "portfolioReturnPercent", "order": "DESCENDING" }
       ]
     },
@@ -85,24 +68,8 @@
       "collectionGroup": "leaderboard",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "matchId", "order": "ASCENDING" },
+        { "fieldPath": "gameCode", "order": "ASCENDING" },
         { "fieldPath": "rank", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "matchParticipants",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "matchId", "order": "ASCENDING" },
-        { "fieldPath": "joinedAt", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "matchParticipants",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "userId", "order": "ASCENDING" },
-        { "fieldPath": "joinedAt", "order": "DESCENDING" }
       ]
     },
     {

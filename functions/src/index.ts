@@ -36,7 +36,6 @@ export {
 export {
   processGameEnds,
   forceSettleGame,
-  forceSettlement,
   getLeaderboard,
   getPlayerResult,
 } from './settlement';

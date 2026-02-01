@@ -539,15 +539,3 @@ export const getPlayerResult = functions.https.onCall(
   }
 );
 
-/**
- * Force settlement for stuck games
- * Scheduled to run hourly
- */
-export const forceSettlement = functions.pubsub
-  .schedule('every 1 hours')
-  .timeZone('Europe/Paris')
-  .onRun(async () => {
-    // This is a safety net - in v2.0 we don't have a SETTLING state
-    // so games should settle immediately when endDate passes
-    functions.logger.info('Force settlement check complete');
-  });
