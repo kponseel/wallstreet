@@ -667,6 +667,7 @@ export const getGamePlayers = functions.https.onCall(
       if (game.status === 'DRAFT') {
         return {
           playerId: player.playerId,
+          userId: player.userId,
           nickname: player.nickname,
           isReady: player.isReady,
           joinedAt: player.joinedAt.toDate().toISOString(),
@@ -678,6 +679,7 @@ export const getGamePlayers = functions.https.onCall(
       // In LIVE or ENDED mode, show full portfolio
       return {
         playerId: player.playerId,
+        userId: player.userId,
         nickname: player.nickname,
         isReady: player.isReady,
         joinedAt: player.joinedAt.toDate().toISOString(),

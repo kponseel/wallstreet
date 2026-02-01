@@ -7,6 +7,7 @@ import { GAME_CONSTANTS, AWARD_CONFIG, type Game, type LeaderboardEntry, type Aw
 
 interface PlayerInfo {
   playerId: string;
+  userId: string | null;
   nickname: string;
   isReady: boolean;
   joinedAt: string;
@@ -36,13 +37,28 @@ export function MatchDetailPage() {
 
   const isCreator = user?.uid === game?.creatorId;
 
-  // Get playerId from localStorage
+  // Get playerId from localStorage or find existing player by userId
   useEffect(() => {
     if (gameCode) {
       const storedPlayerId = localStorage.getItem(`player_${gameCode}`);
-      setCurrentPlayerId(storedPlayerId);
+      if (storedPlayerId) {
+        setCurrentPlayerId(storedPlayerId);
+      }
     }
   }, [gameCode]);
+
+  // If user is authenticated, find their player entry by userId and update localStorage
+  useEffect(() => {
+    if (!gameCode || !user || players.length === 0) return;
+
+    // Find player by userId
+    const myPlayer = players.find((p) => p.userId === user.uid);
+    if (myPlayer) {
+      // Update localStorage and state with the correct playerId
+      localStorage.setItem(`player_${gameCode}`, myPlayer.playerId);
+      setCurrentPlayerId(myPlayer.playerId);
+    }
+  }, [gameCode, user, players]);
 
   const fetchGameData = useCallback(async () => {
     if (!gameCode) return;
