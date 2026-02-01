@@ -481,26 +481,24 @@ export const launchGame = functions.https.onCall(
       .where('gameCode', '==', gameCode)
       .get();
 
-    // Must have at least 1 player
-    if (playersSnapshot.size < 1) {
+    // Separate ready and not-ready players
+    const allPlayers = playersSnapshot.docs.map((doc) => ({
+      id: doc.id,
+      data: doc.data() as Player,
+    }));
+    const readyPlayers = allPlayers.filter((p) => p.data.isReady);
+    const notReadyPlayers = allPlayers.filter((p) => !p.data.isReady);
+
+    // Must have at least 1 ready player (the creator should always be ready)
+    if (readyPlayers.length < 1) {
       throw new functions.https.HttpsError(
         'failed-precondition',
-        'Need at least 1 player to start the game'
+        'Need at least 1 player with a submitted portfolio to start the game'
       );
     }
 
-    // All players must be ready
-    const players = playersSnapshot.docs.map((doc) => doc.data() as Player);
-    const notReadyPlayers = players.filter((p) => !p.isReady);
-
-    if (notReadyPlayers.length > 0) {
-      throw new functions.https.HttpsError(
-        'failed-precondition',
-        `${notReadyPlayers.length} player(s) have not submitted their portfolio`
-      );
-    }
-
-    // Collect all unique tickers
+    // Collect all unique tickers from ready players only
+    const players = readyPlayers.map((p) => p.data);
     const allTickers = new Set<string>();
     for (const player of players) {
       for (const position of player.portfolio) {
@@ -546,7 +544,12 @@ export const launchGame = functions.https.onCall(
     // Update game and all players in a batch
     const batch = db.batch();
 
-    // Update game
+    // Expel not-ready players (delete their player documents)
+    for (const notReadyPlayer of notReadyPlayers) {
+      batch.delete(db.collection('players').doc(notReadyPlayer.id));
+    }
+
+    // Update game with correct player count (only ready players remain)
     batch.update(gameRef, {
       status: 'LIVE',
       startDate: Timestamp.fromDate(startDate),
@@ -554,9 +557,10 @@ export const launchGame = functions.https.onCall(
       launchedAt: Timestamp.now(),
       initialPricesSnapshot: initialPrices,
       tickers: Array.from(allTickers),
+      playerCount: readyPlayers.length,
     });
 
-    // Update each player's portfolio with quantities
+    // Update each ready player's portfolio with quantities
     for (const player of players) {
       const updatedPortfolio = player.portfolio.map((pos) => ({
         ...pos,
@@ -571,13 +575,21 @@ export const launchGame = functions.https.onCall(
 
     await batch.commit();
 
+    // Log expelled players if any
+    if (notReadyPlayers.length > 0) {
+      functions.logger.info(
+        `Expelled ${notReadyPlayers.length} player(s) from game ${gameCode} for not submitting portfolio`
+      );
+    }
+
     await createAuditLog(db, 'GAME_LAUNCHED', uid, 'GAME', gameCode, {
-      playerCount: players.length,
+      playerCount: readyPlayers.length,
+      expelledCount: notReadyPlayers.length,
       tickers: Array.from(allTickers),
       j1Date: j1DateStr,
     });
 
-    functions.logger.info(`Game ${gameCode} launched with ${players.length} players`);
+    functions.logger.info(`Game ${gameCode} launched with ${readyPlayers.length} players`);
 
     return {
       success: true,
