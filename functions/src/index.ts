@@ -4,11 +4,17 @@ import * as admin from 'firebase-admin';
 admin.initializeApp();
 
 // ============================================
-// WALLSTREET v2.0 - CLOUD FUNCTIONS
+// WALLSTREET v2.1 - CLOUD FUNCTIONS
 // ============================================
 
 // Export Auth functions
-export { onUserCreated, deleteUserAccount, updateLastLogin } from './auth';
+export {
+  onUserCreated,
+  deleteUserAccount,
+  updateLastLogin,
+  updateUserProfile,
+  getUserGames,
+} from './auth';
 
 // Export Game functions (formerly Match)
 export {
@@ -21,6 +27,7 @@ export {
   getGameByCode,
   getGamePlayers,
   listOpenGames,
+  kickPlayer,
 } from './game';
 
 // Export Portfolio functions

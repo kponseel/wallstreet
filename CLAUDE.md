@@ -6,7 +6,7 @@ This document provides comprehensive guidance for AI assistants working with the
 
 Wall Street Fantasy League is a stock-picking competition game where players build virtual portfolios (3 stocks, 10,000 credits) and compete based on percentage returns over 7 days. Built as a full-stack application with Firebase backend and React frontend.
 
-**Current Version**: 2.0.1
+**Current Version**: 2.1.0
 
 ## Tech Stack
 

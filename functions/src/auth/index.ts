@@ -1,8 +1,8 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 import { Timestamp } from 'firebase-admin/firestore';
-import { User, UserStats, UserPreferences } from '../types';
-import { createAuditLog } from '../utils/helpers';
+import { User, UserStats, UserPreferences, UpdateUserProfileInput, Game, Player } from '../types';
+import { createAuditLog, isValidNickname } from '../utils/helpers';
 
 const db = admin.firestore();
 
@@ -33,6 +33,7 @@ export const onUserCreated = functions.auth.user().onCreate(async (user) => {
     uid,
     email: email || '',
     displayName: finalDisplayName,
+    nickname: finalDisplayName,  // Initialize nickname same as displayName
     photoURL: photoURL || null,
     emailVerified: emailVerified || false,
     createdAt: Timestamp.now(),
@@ -150,5 +151,152 @@ export const updateLastLogin = functions.https.onCall(async (_data, context) => 
   } catch (error) {
     functions.logger.error(`Failed to update last login for ${uid}:`, error);
     throw new functions.https.HttpsError('internal', 'Failed to update login time');
+  }
+});
+
+/**
+ * Update user profile (nickname, etc.)
+ * Called by client to update profile settings
+ */
+export const updateUserProfile = functions.https.onCall(
+  async (data: UpdateUserProfileInput, context) => {
+    if (!context.auth) {
+      throw new functions.https.HttpsError('unauthenticated', 'Must be logged in');
+    }
+
+    const uid = context.auth.uid;
+    const { nickname } = data;
+
+    // Validate nickname if provided
+    if (nickname !== undefined) {
+      if (!isValidNickname(nickname)) {
+        throw new functions.https.HttpsError(
+          'invalid-argument',
+          'Nickname must be 2-20 characters, alphanumeric'
+        );
+      }
+    }
+
+    try {
+      const updateData: Record<string, unknown> = {};
+
+      if (nickname !== undefined) {
+        updateData.nickname = nickname.trim();
+      }
+
+      if (Object.keys(updateData).length === 0) {
+        throw new functions.https.HttpsError('invalid-argument', 'No fields to update');
+      }
+
+      await db.collection('users').doc(uid).update(updateData);
+
+      await createAuditLog(db, 'USER_PROFILE_UPDATED', uid, 'USER', uid, updateData);
+
+      functions.logger.info(`User profile updated for ${uid}`);
+
+      return { success: true, data: updateData };
+    } catch (error) {
+      functions.logger.error(`Failed to update user profile for ${uid}:`, error);
+      throw new functions.https.HttpsError('internal', 'Failed to update profile');
+    }
+  }
+);
+
+/**
+ * Get all games for the current user (created and joined)
+ * Returns games organized by status
+ */
+export const getUserGames = functions.https.onCall(async (_data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Must be logged in');
+  }
+
+  const uid = context.auth.uid;
+
+  try {
+    // Get all player records for this user
+    const playerDocs = await db
+      .collection('players')
+      .where('userId', '==', uid)
+      .get();
+
+    // Get unique game codes
+    const gameCodes = [...new Set(playerDocs.docs.map((doc) => doc.data().gameCode))];
+
+    if (gameCodes.length === 0) {
+      return {
+        success: true,
+        data: {
+          created: [],
+          joined: [],
+        },
+      };
+    }
+
+    // Fetch all games (Firestore doesn't support IN queries > 30 items)
+    const games: Array<{
+      code: string;
+      name: string;
+      status: string;
+      playerCount: number;
+      creatorId: string;
+      creatorDisplayName: string;
+      createdAt: string;
+      startDate: string | null;
+      endDate: string | null;
+      isCreator: boolean;
+      myNickname: string;
+      myPlayerId: string;
+    }> = [];
+
+    // Batch fetch games (max 10 at a time for IN query)
+    for (let i = 0; i < gameCodes.length; i += 10) {
+      const batch = gameCodes.slice(i, i + 10);
+      const gameDocs = await db
+        .collection('games')
+        .where('code', 'in', batch)
+        .get();
+
+      for (const gameDoc of gameDocs.docs) {
+        const game = gameDoc.data() as Game;
+        const playerDoc = playerDocs.docs.find(
+          (p) => p.data().gameCode === game.code
+        );
+        const player = playerDoc?.data() as Player | undefined;
+
+        games.push({
+          code: game.code,
+          name: game.name,
+          status: game.status,
+          playerCount: game.playerCount,
+          creatorId: game.creatorId,
+          creatorDisplayName: game.creatorDisplayName,
+          createdAt: game.createdAt.toDate().toISOString(),
+          startDate: game.startDate?.toDate().toISOString() || null,
+          endDate: game.endDate?.toDate().toISOString() || null,
+          isCreator: game.creatorId === uid,
+          myNickname: player?.nickname || '',
+          myPlayerId: player?.playerId || '',
+        });
+      }
+    }
+
+    // Sort by createdAt descending
+    games.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    // Separate into created and joined
+    const created = games.filter((g) => g.isCreator);
+    const joined = games.filter((g) => !g.isCreator);
+
+    return {
+      success: true,
+      data: {
+        created,
+        joined,
+      },
+    };
+  } catch (error) {
+    functions.logger.error(`Failed to get user games for ${uid}:`, error);
+    throw new functions.https.HttpsError('internal', 'Failed to get games');
   }
 });

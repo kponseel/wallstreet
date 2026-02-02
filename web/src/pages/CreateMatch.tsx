@@ -1,17 +1,26 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { httpsCallable } from 'firebase/functions';
 import { functions } from '@/services/firebase';
+import { useAuthStore } from '@/hooks/useAuthStore';
 import { GAME_CONSTANTS } from '@/types';
 
 export function CreateMatchPage() {
   const navigate = useNavigate();
+  const { user } = useAuthStore();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [nickname, setNickname] = useState('');
   const [gameCode, setGameCode] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+
+  // Pre-populate nickname from user profile
+  useEffect(() => {
+    if (user?.nickname && !nickname) {
+      setNickname(user.nickname);
+    }
+  }, [user?.nickname]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

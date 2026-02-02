@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { httpsCallable } from 'firebase/functions';
 import { functions } from '@/services/firebase';
+import { useAuthStore } from '@/hooks/useAuthStore';
 import { GAME_CONSTANTS } from '@/types';
 
 interface OpenGame {
@@ -15,6 +16,7 @@ interface OpenGame {
 
 export function MatchLobbyPage() {
   const navigate = useNavigate();
+  const { user } = useAuthStore();
   const [gameCode, setGameCode] = useState('');
   const [nickname, setNickname] = useState('');
   const [loading, setLoading] = useState(false);
@@ -28,6 +30,13 @@ export function MatchLobbyPage() {
   } | null>(null);
   const [openGames, setOpenGames] = useState<OpenGame[]>([]);
   const [loadingGames, setLoadingGames] = useState(true);
+
+  // Pre-populate nickname from user profile when entering nickname step
+  useEffect(() => {
+    if (step === 'nickname' && user?.nickname && !nickname) {
+      setNickname(user.nickname);
+    }
+  }, [step, user?.nickname]);
 
   // Load open games on mount
   useEffect(() => {

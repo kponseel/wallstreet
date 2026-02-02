@@ -1,5 +1,5 @@
 // ============================================
-// WALLSTREET FANTASY LEAGUE v2.0 - FRONTEND TYPES
+// WALLSTREET FANTASY LEAGUE v2.1 - FRONTEND TYPES
 // ============================================
 
 // User types
@@ -7,6 +7,7 @@ export interface User {
   uid: string;
   email: string;
   displayName: string;
+  nickname: string;           // Persistent game nickname
   photoURL: string | null;
   emailVerified: boolean;
   stats: UserStats;

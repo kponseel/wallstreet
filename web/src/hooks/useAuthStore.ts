@@ -29,6 +29,7 @@ interface AuthState {
   sendVerificationEmail: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   clearError: () => void;
+  updateNickname: (nickname: string) => void;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -41,10 +42,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         // Create user object from Firebase Auth data immediately
+        const defaultDisplayName = firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User';
         const defaultUser: User = {
           uid: firebaseUser.uid,
           email: firebaseUser.email || '',
-          displayName: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User',
+          displayName: defaultDisplayName,
+          nickname: defaultDisplayName,  // Initialize nickname same as displayName
           photoURL: firebaseUser.photoURL,
           emailVerified: firebaseUser.emailVerified,
           stats: {
@@ -68,6 +71,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
               user: {
                 ...defaultUser,
                 displayName: userData.displayName || defaultUser.displayName,
+                nickname: userData.nickname || defaultUser.nickname,
                 photoURL: userData.photoURL || defaultUser.photoURL,
                 stats: userData.stats || defaultUser.stats,
               },
@@ -154,4 +158,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   clearError: () => set({ error: null }),
+
+  updateNickname: (nickname: string) => {
+    const { user } = get();
+    if (user) {
+      set({ user: { ...user, nickname } });
+    }
+  },
 }));

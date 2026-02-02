@@ -1,4 +1,4 @@
-export const APP_VERSION = '2.0.1';
+export const APP_VERSION = '2.1.0';
 
 export interface ChangelogEntry {
   version: string;
@@ -10,6 +10,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '2.1.0',
+    date: '2026-02-02',
+    changes: [
+      { type: 'added', description: 'Persistent nickname in user profile' },
+      { type: 'added', description: 'Profile page shows created and joined games' },
+      { type: 'added', description: 'Admin can kick players from DRAFT games' },
+      { type: 'changed', description: 'Create/Join game now pre-populates nickname from profile' },
+      { type: 'added', description: 'New cloud functions: updateUserProfile, getUserGames, kickPlayer' },
+    ],
+  },
   {
     version: '2.0.1',
     date: '2026-02-01',

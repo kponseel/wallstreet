@@ -1,7 +1,7 @@
 import { Timestamp } from 'firebase-admin/firestore';
 
 // ============================================
-// WALLSTREET FANTASY LEAGUE v2.0 - TYPE DEFINITIONS
+// WALLSTREET FANTASY LEAGUE v2.1 - TYPE DEFINITIONS
 // ============================================
 
 // User types (simplified - can be anonymous or authenticated)
@@ -9,6 +9,7 @@ export interface User {
   uid: string;
   email: string;
   displayName: string;
+  nickname: string;           // Persistent game nickname
   photoURL: string | null;
   emailVerified: boolean;
   createdAt: Timestamp;
@@ -287,6 +288,15 @@ export interface SubmitPortfolioInput {
 
 export interface LaunchGameInput {
   gameCode: string;
+}
+
+export interface UpdateUserProfileInput {
+  nickname?: string;
+}
+
+export interface KickPlayerInput {
+  gameCode: string;
+  playerId: string;
 }
 
 // ============================================

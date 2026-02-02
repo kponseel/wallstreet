@@ -4,9 +4,11 @@ import { Timestamp } from 'firebase-admin/firestore';
 import {
   Game,
   Player,
+  User,
   CreateGameInput,
   JoinGameInput,
   LaunchGameInput,
+  KickPlayerInput,
   GAME_CONSTANTS,
 } from '../types';
 import {
@@ -86,8 +88,8 @@ export const createGame = functions.https.onCall(
       throw new functions.https.HttpsError('internal', 'Failed to generate unique game code');
     }
 
-    // Use nickname or fallback to displayName
-    const creatorNickname = nickname?.trim() || userData.displayName;
+    // Use provided nickname, or fallback to profile nickname, then displayName
+    const creatorNickname = nickname?.trim() || userData.nickname || userData.displayName;
 
     // Validate nickname
     if (!isValidNickname(creatorNickname)) {
@@ -157,7 +159,17 @@ export const createGame = functions.https.onCall(
  */
 export const joinGame = functions.https.onCall(
   async (data: JoinGameInput, context) => {
-    const { gameCode, nickname } = data;
+    const { gameCode } = data;
+    let { nickname } = data;
+
+    // If no nickname provided and user is authenticated, use profile nickname
+    if (!nickname && context.auth) {
+      const userDoc = await db.collection('users').doc(context.auth.uid).get();
+      const userData = userDoc.data() as User | undefined;
+      if (userData?.nickname) {
+        nickname = userData.nickname;
+      }
+    }
 
     // Validate nickname
     if (!isValidNickname(nickname)) {
@@ -730,3 +742,83 @@ export const listOpenGames = functions.https.onCall(async () => {
     data: { games },
   };
 });
+
+/**
+ * Kick a player from a DRAFT game
+ * Only the game creator (admin) can kick players
+ */
+export const kickPlayer = functions.https.onCall(
+  async (data: KickPlayerInput, context) => {
+    if (!context.auth) {
+      throw new functions.https.HttpsError('unauthenticated', 'Must be logged in');
+    }
+
+    const uid = context.auth.uid;
+    const { gameCode, playerId } = data;
+
+    // Get game
+    const gameRef = db.collection('games').doc(gameCode);
+    const gameDoc = await gameRef.get();
+
+    if (!gameDoc.exists) {
+      throw new functions.https.HttpsError('not-found', 'Game not found');
+    }
+
+    const game = gameDoc.data() as Game;
+
+    // Verify caller is the creator
+    if (game.creatorId !== uid) {
+      throw new functions.https.HttpsError('permission-denied', 'Only the game creator can kick players');
+    }
+
+    // Verify game is in DRAFT status
+    if (game.status !== 'DRAFT') {
+      throw new functions.https.HttpsError('failed-precondition', 'Can only kick players from DRAFT games');
+    }
+
+    // Get player document
+    const playerRef = db.collection('players').doc(playerId);
+    const playerDoc = await playerRef.get();
+
+    if (!playerDoc.exists) {
+      throw new functions.https.HttpsError('not-found', 'Player not found');
+    }
+
+    const player = playerDoc.data() as Player;
+
+    // Verify player is in this game
+    if (player.gameCode !== gameCode) {
+      throw new functions.https.HttpsError('invalid-argument', 'Player is not in this game');
+    }
+
+    // Cannot kick yourself (the creator)
+    if (player.userId === uid) {
+      throw new functions.https.HttpsError('invalid-argument', 'Cannot kick yourself from the game');
+    }
+
+    // Delete player and decrement count
+    const batch = db.batch();
+    batch.delete(playerRef);
+    batch.update(gameRef, {
+      playerCount: admin.firestore.FieldValue.increment(-1),
+    });
+    await batch.commit();
+
+    await createAuditLog(db, 'PLAYER_KICKED', uid, 'PLAYER', playerId, {
+      gameCode,
+      kickedNickname: player.nickname,
+      kickedUserId: player.userId,
+    });
+
+    functions.logger.info(`Player ${playerId} (${player.nickname}) kicked from game ${gameCode}`);
+
+    return {
+      success: true,
+      data: {
+        gameCode,
+        kickedPlayerId: playerId,
+        kickedNickname: player.nickname,
+      },
+    };
+  }
+);

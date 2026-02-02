@@ -34,6 +34,7 @@ export function MatchDetailPage() {
   const [editingName, setEditingName] = useState(false);
   const [newName, setNewName] = useState('');
   const [savingName, setSavingName] = useState(false);
+  const [kickingPlayerId, setKickingPlayerId] = useState<string | null>(null);
 
   const isCreator = user?.uid === game?.creatorId;
 
@@ -182,6 +183,36 @@ export function MatchDetailPage() {
     if (game) {
       setNewName(game.name);
       setEditingName(true);
+    }
+  };
+
+  const handleKickPlayer = async (playerId: string) => {
+    if (!gameCode || !isCreator || !game || game.status !== 'DRAFT') return;
+
+    // Confirm kick
+    const playerToKick = players.find((p) => p.playerId === playerId);
+    if (!playerToKick) return;
+
+    if (!window.confirm(`Voulez-vous expulser ${playerToKick.nickname} de la partie ?`)) {
+      return;
+    }
+
+    setKickingPlayerId(playerId);
+    setError(null);
+
+    try {
+      const kickPlayer = httpsCallable(functions, 'kickPlayer');
+      const result = await kickPlayer({ gameCode, playerId });
+      const data = result.data as { success: boolean };
+
+      if (data.success) {
+        // Refresh game data to get updated player list
+        fetchGameData();
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Erreur lors de l\'expulsion');
+    } finally {
+      setKickingPlayerId(null);
     }
   };
 
@@ -429,13 +460,26 @@ export function MatchDetailPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   {game.status === 'DRAFT' ? (
-                    player.isReady ? (
-                      <span className="text-green-600 text-sm font-medium flex items-center gap-1">
-                        <span>✓</span> Pret
-                      </span>
-                    ) : (
-                      <span className="text-orange-600 text-sm">En preparation...</span>
-                    )
+                    <>
+                      {player.isReady ? (
+                        <span className="text-green-600 text-sm font-medium flex items-center gap-1">
+                          <span>✓</span> Pret
+                        </span>
+                      ) : (
+                        <span className="text-orange-600 text-sm">En preparation...</span>
+                      )}
+                      {/* Kick button for admin (only for other players, not self) */}
+                      {isCreator && player.playerId !== currentPlayerId && (
+                        <button
+                          onClick={() => handleKickPlayer(player.playerId)}
+                          disabled={kickingPlayerId === player.playerId}
+                          className="ml-2 px-2 py-1 text-xs bg-red-100 text-red-700 hover:bg-red-200 rounded transition-colors"
+                          title="Expulser ce joueur"
+                        >
+                          {kickingPlayerId === player.playerId ? '...' : '✕'}
+                        </button>
+                      )}
+                    </>
                   ) : player.portfolio && (
                     <span className="text-xs text-gray-500">
                       {player.portfolio.length} positions
