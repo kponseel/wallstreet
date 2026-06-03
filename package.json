@@ -1,27 +1,32 @@
 {
-  "name": "wallstreet-fantasy-league",
-  "version": "2.0.1",
-  "description": "Wall Street Fantasy League - Stock picking competition game",
+  "name": "ai-stock-lab",
   "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Log dated AI stock-pick portfolios (model + prompt + entry price) and track how each one performs over time.",
   "scripts": {
-    "build": "npm run build:functions && npm run build:web",
-    "build:functions": "cd functions && npm run build",
-    "build:web": "cd web && npm run build",
-    "dev": "cd web && npm run dev",
-    "deploy": "firebase deploy",
-    "deploy:functions": "firebase deploy --only functions",
-    "deploy:hosting": "firebase deploy --only hosting",
-    "deploy:rules": "firebase deploy --only firestore:rules,firestore:indexes",
-    "emulators": "firebase emulators:start",
-    "emulators:dev": "firebase emulators:start --import=./emulator-data --export-on-exit",
-    "test": "npm run test:functions && npm run test:web",
-    "test:functions": "cd functions && npm test",
-    "test:web": "cd web && npm test"
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview --port 3000",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
-  "keywords": ["firebase", "stock", "fantasy", "game"],
-  "author": "",
-  "license": "UNLICENSED",
-  "engines": {
-    "node": "18"
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.20.0",
+    "zustand": "^4.4.7"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/react": "^18.2.37",
+    "@types/react-dom": "^18.2.15",
+    "@vitejs/plugin-react": "^4.2.0",
+    "autoprefixer": "^10.4.16",
+    "postcss": "^8.4.31",
+    "tailwindcss": "^3.3.5",
+    "typescript": "^5.2.2",
+    "vite": "^5.0.0",
+    "vitest": "^1.6.0"
   }
 }

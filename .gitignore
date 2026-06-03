@@ -1,40 +1,18 @@
 # Dependencies
 node_modules/
-.pnp
-.pnp.js
 
 # Build outputs
 dist/
-build/
-.firebase/
-lib/
 
-# Environment files
+# Local env / editor
 .env
-.env.local
-.env.*.local
+.env.*
 *.local
-
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
 .DS_Store
+.vscode/
+.idea/
 
-# Logs
-logs/
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-firebase-debug.log
-firebase-debug.*.log
-
-# Testing
+# Testing / cache
 coverage/
-
-# Cache
-.eslintcache
-.cache/
-web/.vite/
+.vite/
+*.log
