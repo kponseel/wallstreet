@@ -5,6 +5,12 @@ on:
     branches:
       - main
       - claude/*
+    # The standalone app in ai-stock-lab/ has its own CI (ai-stock-lab-ci.yml)
+    # and is not part of this Firebase deploy. Skip deploys for pushes that only
+    # touch it, so app-only changes don't trigger the WSFL deploy.
+    paths-ignore:
+      - 'ai-stock-lab/**'
+      - '.github/workflows/ai-stock-lab-ci.yml'
 
 jobs:
   deploy:
