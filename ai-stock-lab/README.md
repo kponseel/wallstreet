@@ -64,3 +64,9 @@ on another browser/machine. Exporting regularly is recommended.
 
 React + TypeScript + Vite + Tailwind + Zustand (persisted to localStorage). No external runtime
 services. Self-contained in this folder; it doesn't touch the rest of the repository.
+
+## Continuous integration
+
+A dedicated workflow (`.github/workflows/ai-stock-lab-ci.yml`) type-checks, builds and runs the
+tests for this folder on every push/PR that touches it. The repository's separate Firebase deploy
+is scoped to **skip** `ai-stock-lab/**`, so changes here never trigger that pipeline.
