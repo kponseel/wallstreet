@@ -16,3 +16,7 @@ dist/
 coverage/
 .vite/
 *.log
+
+# The repository-root .gitignore ignores any "lib/" directory (Firebase
+# functions build output). Our source lives in src/lib, so re-include it.
+!src/lib/
