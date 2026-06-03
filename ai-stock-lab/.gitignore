@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+
+# Local env / editor
+.env
+.env.*
+*.local
+.DS_Store
+.vscode/
+.idea/
+
+# Testing / cache
+coverage/
+.vite/
+*.log

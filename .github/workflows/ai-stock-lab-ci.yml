@@ -1,0 +1,32 @@
+name: AI Stock Lab CI
+
+# Additive CI for the local-first app in ai-stock-lab/.
+# Only runs when that folder changes; does not touch the existing Firebase pipeline.
+on:
+  push:
+    branches: [main, 'claude/**']
+    paths:
+      - 'ai-stock-lab/**'
+      - '.github/workflows/ai-stock-lab-ci.yml'
+  pull_request:
+    paths:
+      - 'ai-stock-lab/**'
+      - '.github/workflows/ai-stock-lab-ci.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ai-stock-lab
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install dependencies
+        run: npm install
+      - name: Type-check & build
+        run: npm run build
+      - name: Run tests
+        run: npm test
